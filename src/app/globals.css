@@ -94,6 +94,23 @@
   body {
     @apply relative font-normal font-outfit z-1 bg-gray-50 text-gray-700;
   }
+
+  /* React Quill Preview Fixes for Empty Lines/Enters */
+  .ql-editor p,
+  .ql-editor h1,
+  .ql-editor h2,
+  .ql-editor h3 {
+    min-height: 1.5em;
+  }
+
+  .ql-editor p:empty::before {
+    content: "\00a0";
+  }
+
+  .ql-editor p br {
+    display: block;
+    content: "";
+  }
 }
 
 /* TailAdmin Menu Utilities */
