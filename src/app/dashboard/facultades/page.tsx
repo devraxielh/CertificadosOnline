@@ -171,7 +171,7 @@ export default function FacultadesPage() {
                 </div>
             )}
             {showModal && (
-                <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-gray-900/50 p-4">
+                <div className="fixed inset-0 z-[99999] flex items-start pt-[5vh] justify-center bg-gray-900/50 p-4">
                     <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-6 shadow-theme-lg max-h-[90vh] overflow-y-auto">
                         <h3 className="text-lg font-semibold text-gray-800 mb-5">{editingFaculty ? "Editar Facultad" : "Nueva Facultad"}</h3>
                         <form onSubmit={handleSubmit} className="space-y-4">
@@ -198,7 +198,7 @@ export default function FacultadesPage() {
             )}
 
             {showImportModal && (
-                <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-gray-900/50 p-4">
+                <div className="fixed inset-0 z-[99999] flex items-start pt-[5vh] justify-center bg-gray-900/50 p-4">
                     <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-6 shadow-theme-lg">
                         <h3 className="text-lg font-semibold text-gray-800 mb-5">Importar Facultades desde Excel</h3>
 

@@ -116,7 +116,7 @@ export default function RolesPage() {
             )}
 
             {showModal && (
-                <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-gray-900/50 p-4">
+                <div className="fixed inset-0 z-[99999] flex items-start pt-[5vh] justify-center bg-gray-900/50 p-4">
                     <div className="w-full max-w-2xl rounded-2xl border border-gray-200 bg-white p-6 shadow-theme-lg">
                         <h3 className="text-lg font-semibold text-gray-800 mb-5">{editingRole ? "Editar Rol" : "Nuevo Rol"}</h3>
                         <form onSubmit={handleSubmit} className="space-y-5">

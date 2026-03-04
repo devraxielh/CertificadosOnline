@@ -1,6 +1,7 @@
 "use client"
 import { useState, useEffect, useCallback, useRef } from "react"
 import ConfirmModal from "@/components/ConfirmModal"
+import SearchableSelect from "@/components/SearchableSelect"
 import * as XLSX from "xlsx"
 import toast from "react-hot-toast"
 
@@ -203,7 +204,7 @@ export default function PersonasPage() {
                 </div>
             )}
             {showModal && (
-                <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-gray-900/50 p-4">
+                <div className="fixed inset-0 z-[99999] flex items-start pt-[5vh] justify-center bg-gray-900/50 p-4">
                     <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-6 shadow-theme-lg max-h-[90vh] overflow-y-auto">
                         <h3 className="text-lg font-semibold text-gray-800 mb-5">{editingPerson ? "Editar Persona" : "Nueva Persona"}</h3>
                         <form onSubmit={handleSubmit} className="space-y-4">
@@ -218,7 +219,7 @@ export default function PersonasPage() {
                             </div>
                             <div><label className="block text-sm font-medium text-gray-700 mb-2">Teléfono <span className="text-gray-400">(opcional)</span></label><input type="tel" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} className={inputCls} placeholder="Teléfono" /></div>
                             <div><label className="block text-sm font-medium text-gray-700 mb-2">Correo</label><input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} required className={inputCls} placeholder="correo@ejemplo.com" /></div>
-                            <div><label className="block text-sm font-medium text-gray-700 mb-2">Programa</label><select value={form.programId} onChange={e => setForm({ ...form, programId: e.target.value })} className={inputCls}><option value="">Sin programa</option>{programs.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+                            <div><label className="block text-sm font-medium text-gray-700 mb-2">Programa</label><SearchableSelect value={form.programId} onChange={(val) => setForm({ ...form, programId: val })} placeholder="Sin programa" options={programs.map(p => ({ label: p.name, value: String(p.id) }))} /></div>
                             <div className="flex gap-3 pt-2">
                                 <button type="button" onClick={() => setShowModal(false)} className="flex-1 rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 shadow-theme-xs transition-colors">Cancelar</button>
                                 <button type="submit" className="flex-1 rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-brand-600 shadow-theme-xs transition-colors">Guardar</button>
@@ -238,7 +239,7 @@ export default function PersonasPage() {
             />
 
             {showImportModal && (
-                <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-gray-900/50 p-4">
+                <div className="fixed inset-0 z-[99999] flex items-start pt-[5vh] justify-center bg-gray-900/50 p-4">
                     <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-6 shadow-theme-lg">
                         <h3 className="text-lg font-semibold text-gray-800 mb-5">Importar Personas desde Excel</h3>
 

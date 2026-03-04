@@ -99,7 +99,8 @@ model CertificateAssignment {
   certificate   Certificate @relation(fields: [certificateId], references: [id])
   personId      Int
   person        Person      @relation(fields: [personId], references: [id])
-  createdAt     DateTime    @default(now())
+  createdAt            DateTime    @default(now())
+  participationDetails String?     @db.Text
 
   @@unique([certificateId, personId])
 }

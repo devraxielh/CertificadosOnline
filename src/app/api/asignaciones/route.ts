@@ -14,7 +14,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
     try {
-        const { certificateId, identification } = await req.json()
+        const { certificateId, identification, participationDetails } = await req.json()
 
         const person = await prisma.person.findUnique({
             where: { identification },
@@ -28,6 +28,7 @@ export async function POST(req: NextRequest) {
             data: {
                 certificateId: parseInt(certificateId),
                 personId: person.id,
+                participationDetails: participationDetails || null,
             },
             include: {
                 certificate: { include: { event: true } },

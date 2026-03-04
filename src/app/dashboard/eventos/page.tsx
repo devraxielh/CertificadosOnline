@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import * as XLSX from "xlsx"
 import ConfirmModal from "@/components/ConfirmModal"
+import SearchableSelect from "@/components/SearchableSelect"
 import toast from "react-hot-toast"
 
 interface Event { id: number; name: string; startDate: string; endDate: string; description: string; eventType: string; status: string }
@@ -257,14 +258,14 @@ export default function EventosPage() {
                 </div>
             )}
             {showModal && (
-                <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-gray-900/50 p-4">
+                <div className="fixed inset-0 z-[99999] flex items-start pt-[5vh] justify-center bg-gray-900/50 p-4">
                     <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-6 shadow-theme-lg max-h-[90vh] overflow-y-auto">
                         <h3 className="text-lg font-semibold text-gray-800 mb-5">{editingEvent ? "Editar Evento" : "Nuevo Evento"}</h3>
                         <form onSubmit={handleSubmit} className="space-y-4">
                             {error && <div className="rounded-lg bg-error-50 border border-error-100 p-3 text-sm text-error-600">{error}</div>}
                             <div><label className="block text-sm font-medium text-gray-700 mb-2">Nombre</label><input type="text" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required className={ic} /></div>
                             <div className="grid grid-cols-2 gap-4">
-                                <div><label className="block text-sm font-medium text-gray-700 mb-2">Tipo</label><select value={form.eventType} onChange={e => setForm({ ...form, eventType: e.target.value })} className={ic}>{EVENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
+                                <div><label className="block text-sm font-medium text-gray-700 mb-2">Tipo</label><SearchableSelect value={form.eventType} onChange={(val) => setForm({ ...form, eventType: val })} placeholder="Seleccionar tipo" options={EVENT_TYPES.map(t => ({ label: t, value: t }))} /></div>
                                 <div><label className="block text-sm font-medium text-gray-700 mb-2">Estado</label><select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })} className={ic}>{EVENT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
@@ -283,7 +284,7 @@ export default function EventosPage() {
 
             {/* Import Modal */}
             {showImportModal && (
-                <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-gray-900/50 p-4">
+                <div className="fixed inset-0 z-[99999] flex items-start pt-[5vh] justify-center bg-gray-900/50 p-4">
                     <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-6 shadow-theme-lg">
                         <h3 className="text-lg font-semibold text-gray-800 mb-5">Importar Eventos desde Excel</h3>
 

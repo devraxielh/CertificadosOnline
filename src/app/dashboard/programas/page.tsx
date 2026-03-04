@@ -1,6 +1,7 @@
 "use client"
 import { useState, useEffect, useCallback, useRef } from "react"
 import ConfirmModal from "@/components/ConfirmModal"
+import SearchableSelect from "@/components/SearchableSelect"
 import * as XLSX from "xlsx"
 import toast from "react-hot-toast"
 
@@ -261,7 +262,7 @@ export default function ProgramasPage() {
             </div>
 
             {showModal && (
-                <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-gray-900/50 p-4 animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[99999] flex items-start pt-[5vh] justify-center bg-gray-900/50 p-4 animate-in fade-in duration-200">
                     <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-theme-lg animate-in zoom-in-95 duration-200">
                         <div className="mb-5">
                             <h3 className="text-lg font-semibold text-gray-800">{editingProgram ? "Editar Programa" : "Nuevo Programa"}</h3>
@@ -335,17 +336,12 @@ export default function ProgramasPage() {
 
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">Facultad</label>
-                                <select
+                                <SearchableSelect
                                     value={form.facultyId}
-                                    onChange={(e) => setForm({ ...form, facultyId: e.target.value })}
-                                    required
-                                    className={inputClasses}
-                                >
-                                    <option value="" disabled>Selecciona una facultad...</option>
-                                    {faculties.map(fac => (
-                                        <option key={fac.id} value={fac.id}>{fac.name}</option>
-                                    ))}
-                                </select>
+                                    onChange={(val) => setForm({ ...form, facultyId: val })}
+                                    placeholder="Selecciona una facultad..."
+                                    options={faculties.map(fac => ({ label: fac.name, value: String(fac.id) }))}
+                                />
                             </div>
 
                             <div className="flex gap-3 pt-2">
@@ -372,7 +368,7 @@ export default function ProgramasPage() {
             />
 
             {showImportModal && (
-                <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-gray-900/50 p-4">
+                <div className="fixed inset-0 z-[99999] flex items-start pt-[5vh] justify-center bg-gray-900/50 p-4">
                     <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-6 shadow-theme-lg">
                         <h3 className="text-lg font-semibold text-gray-800 mb-5">Importar Programas desde Excel</h3>
 

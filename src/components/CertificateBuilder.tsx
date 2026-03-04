@@ -294,6 +294,7 @@ export default function CertificateBuilder({
                                             <option value="{{NOMBRE_EVENTO}}">Nombre del Evento</option>
                                             <option value="{{FECHA_EXPEDICION}}">Fecha Expedición</option>
                                             <option value="{{TIPO_PARTICIPACION}}">Tipo Participación</option>
+                                            <option value="{{DETALLES_PARTICIPACION}}">Detalles Participación (Ponen/Conf/Eval)</option>
                                         </select>
                                     ) : (
                                         <textarea
