@@ -6,7 +6,7 @@ import * as XLSX from "xlsx"
 import toast from "react-hot-toast"
 
 interface Program { id: number; name: string }
-interface Person { id: number; firstName: string; lastName: string; idType: string; identification: string; phone: string | null; email: string; programId: number | null; program?: Program }
+interface Person { id: number; fullName: string; idType: string; identification: string; phone: string | null; email: string; programId: number | null; program?: Program }
 const ID_TYPES = ["CC", "TI", "CE", "Pasaporte"]
 
 export default function PersonasPage() {
@@ -17,19 +17,25 @@ export default function PersonasPage() {
     const [search, setSearch] = useState("")
     const [programFilter, setProgramFilter] = useState("")
     const [programs, setPrograms] = useState<Program[]>([])
-    const [form, setForm] = useState({ firstName: "", lastName: "", idType: "CC", identification: "", phone: "", email: "", programId: "" })
+    const [form, setForm] = useState({ fullName: "", idType: "CC", identification: "", phone: "", email: "", programId: "" })
     const [error, setError] = useState("")
     const [confirmAction, setConfirmAction] = useState<Person | null>(null)
     const [showImportModal, setShowImportModal] = useState(false)
     const [importing, setImporting] = useState(false)
     const [importData, setImportData] = useState<any[]>([])
+    const [currentPage, setCurrentPage] = useState(1)
+    const [selectedIds, setSelectedIds] = useState<number[]>([])
+    const [showBatchDeleteModal, setShowBatchDeleteModal] = useState(false)
+    const [isDeletingBatch, setIsDeletingBatch] = useState(false)
+    const itemsPerPage = 20
     const fileInputRef = useRef<HTMLInputElement>(null)
+    useEffect(() => { setCurrentPage(1); setSelectedIds([]) }, [search, programFilter])
 
     const fetchData = useCallback(async () => {
         try {
             const [perRes, progRes] = await Promise.all([fetch("/api/personas"), fetch("/api/programas")])
-            setPersons(await perRes.json())
-            setPrograms(await progRes.json())
+            setPersons(await perRes.json().catch(() => []))
+            setPrograms(await progRes.json().catch(() => []))
         } catch (e) { console.error(e) } finally { setLoading(false) }
     }, [])
     useEffect(() => { fetchData() }, [fetchData])
@@ -40,7 +46,7 @@ export default function PersonasPage() {
         const res = await fetch(url, { method: editingPerson ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, phone: form.phone || null }) })
         if (res.ok) {
             toast.success(editingPerson ? "Persona actualizada" : "Persona creada")
-            setShowModal(false); setEditingPerson(null); setForm({ firstName: "", lastName: "", idType: "CC", identification: "", phone: "", email: "", programId: "" }); fetchData()
+            setShowModal(false); setEditingPerson(null); setForm({ fullName: "", idType: "CC", identification: "", phone: "", email: "", programId: "" }); fetchData()
         } else {
             const data = await res.json().catch(() => ({}))
             const err = data.error || "Error al guardar"
@@ -55,13 +61,39 @@ export default function PersonasPage() {
             toast.success("Persona eliminada")
             fetchData(); setConfirmAction(null)
         } else {
-            toast.error("Error al eliminar la persona")
+            const errData = await res.json().catch(() => ({}))
+            toast.error(errData.error || "Error al eliminar la persona")
         }
     }
-    const openCreate = () => { setEditingPerson(null); setForm({ firstName: "", lastName: "", idType: "CC", identification: "", phone: "", email: "", programId: "" }); setError(""); setShowModal(true) }
-    const openEdit = (p: Person) => { setEditingPerson(p); setForm({ firstName: p.firstName, lastName: p.lastName, idType: p.idType, identification: p.identification, phone: p.phone || "", email: p.email, programId: p.programId ? String(p.programId) : "" }); setError(""); setShowModal(true) }
+
+    const handleBatchDelete = async () => {
+        setIsDeletingBatch(true)
+        try {
+            const res = await fetch("/api/personas", {
+                method: "DELETE",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ ids: selectedIds })
+            })
+            if (res.ok) {
+                toast.success(`Se eliminaron ${selectedIds.length} personas`)
+                setSelectedIds([])
+                fetchData()
+            } else {
+                const errData = await res.json().catch(() => ({}))
+                toast.error(errData.error || "Error al eliminar personas en lote")
+            }
+        } catch (error) {
+            toast.error("Error de conexión al eliminar")
+        } finally {
+            setIsDeletingBatch(false)
+            setShowBatchDeleteModal(false)
+        }
+    }
+
+    const openCreate = () => { setEditingPerson(null); setForm({ fullName: "", idType: "CC", identification: "", phone: "", email: "", programId: "" }); setError(""); setShowModal(true) }
+    const openEdit = (p: Person) => { setEditingPerson(p); setForm({ fullName: p.fullName, idType: p.idType, identification: p.identification, phone: p.phone || "", email: p.email, programId: p.programId ? String(p.programId) : "" }); setError(""); setShowModal(true) }
     const filtered = persons.filter(p => {
-        const matchesSearch = `${p.firstName} ${p.lastName} ${p.identification} ${p.email}`.toLowerCase().includes(search.toLowerCase());
+        const matchesSearch = `${p.fullName} ${p.identification} ${p.email}`.toLowerCase().includes(search.toLowerCase());
         const matchesProgram = programFilter ? String(p.programId) === programFilter : true;
         return matchesSearch && matchesProgram;
     })
@@ -80,8 +112,8 @@ export default function PersonasPage() {
     }
 
     const downloadTemplate = () => {
-        const ws = XLSX.utils.json_to_sheet([{ nombres: "Juan", apellidos: "Pérez", tipo_id: "CC", identificacion: "123456789", telefono: "3000000000", correo: "juan@correo.com", id_programa: 1 }])
-        ws["!cols"] = [{ wch: 15 }, { wch: 15 }, { wch: 8 }, { wch: 20 }, { wch: 15 }, { wch: 30 }, { wch: 15 }]
+        const ws = XLSX.utils.json_to_sheet([{ Nombre_Completo: "Juan Pérez", tipo_id: "CC", identificacion: "123456789", telefono: "3000000000", correo: "juan@correo.com", id_programa: 1 }])
+        ws["!cols"] = [{ wch: 30 }, { wch: 8 }, { wch: 20 }, { wch: 15 }, { wch: 30 }, { wch: 15 }]
         const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Plantilla_Personas")
         XLSX.writeFile(wb, "plantilla_importacion_personas.xlsx")
     }
@@ -93,8 +125,7 @@ export default function PersonasPage() {
                 const res = await fetch("/api/personas", {
                     method: "POST", headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
-                        firstName: row.nombres || row.nombre || "Sin nombre",
-                        lastName: row.apellidos || row.apellido || "Sin apellido",
+                        fullName: row.Nombre_Completo || row.nombre || row.nombres || "Sin nombre",
                         idType: row.tipo_id || "CC",
                         identification: String(row.identificacion || row.documento || Math.random().toString().slice(2, 10)),
                         phone: row.telefono || null,
@@ -118,8 +149,7 @@ export default function PersonasPage() {
     const exportPersons = () => {
         const data = filtered.map(p => ({
             id: p.id,
-            nombres: p.firstName,
-            apellidos: p.lastName,
+            Nombre_Completo: p.fullName,
             tipo_id: p.idType,
             identificacion: p.identification,
             telefono: p.phone || "",
@@ -133,11 +163,20 @@ export default function PersonasPage() {
         XLSX.writeFile(wb, `personas_${new Date().toISOString().split("T")[0]}.xlsx`)
     }
 
+    const totalPages = Math.ceil(filtered.length / itemsPerPage)
+    const currentPersons = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+
     return (
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div><h2 className="text-2xl font-semibold text-gray-800">Personas</h2><p className="text-gray-500 text-sm mt-1">Gestión de personas registradas</p></div>
                 <div className="flex items-center gap-3">
+                    {selectedIds.length > 0 && (
+                        <button onClick={() => setShowBatchDeleteModal(true)} className="inline-flex items-center gap-2 rounded-lg border border-error-200 bg-error-50 px-4 py-2.5 text-sm font-medium text-error-600 hover:bg-error-100 shadow-theme-xs transition-colors">
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            Borrar Selección ({selectedIds.length})
+                        </button>
+                    )}
                     <button onClick={() => { setShowImportModal(true); setImportData([]) }} className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 shadow-theme-xs transition-colors">
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
                         Importar
@@ -179,6 +218,21 @@ export default function PersonasPage() {
                 <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-xs">
                     <div className="overflow-x-auto"><table className="w-full">
                         <thead><tr className="border-b border-gray-100">
+                            <th className="px-6 py-4 w-12 text-left">
+                                <input
+                                    type="checkbox"
+                                    className="rounded border-gray-300 text-brand-500 focus:ring-brand-500 cursor-pointer h-4 w-4"
+                                    checked={currentPersons.length > 0 && currentPersons.every(p => selectedIds.includes(p.id))}
+                                    onChange={(e) => {
+                                        if (e.target.checked) {
+                                            const newIds = currentPersons.map(p => p.id).filter(id => !selectedIds.includes(id));
+                                            setSelectedIds([...selectedIds, ...newIds]);
+                                        } else {
+                                            setSelectedIds(selectedIds.filter(id => !currentPersons.find(p => p.id === id)));
+                                        }
+                                    }}
+                                />
+                            </th>
                             <th className="px-6 py-4 text-left text-theme-xs font-medium text-gray-500 uppercase">Nombre</th>
                             <th className="px-6 py-4 text-left text-theme-xs font-medium text-gray-500 uppercase">Identificación</th>
                             <th className="px-6 py-4 text-left text-theme-xs font-medium text-gray-500 uppercase">Email</th>
@@ -186,9 +240,23 @@ export default function PersonasPage() {
                             <th className="px-6 py-4 text-right text-theme-xs font-medium text-gray-500 uppercase">Acciones</th>
                         </tr></thead>
                         <tbody className="divide-y divide-gray-100">
-                            {filtered.map((p) => (
+                            {currentPersons.map((p) => (
                                 <tr key={p.id} className="hover:bg-gray-50 transition-colors">
-                                    <td className="px-6 py-4 text-sm font-medium text-gray-800">{p.firstName} {p.lastName}</td>
+                                    <td className="px-6 py-4">
+                                        <input
+                                            type="checkbox"
+                                            className="rounded border-gray-300 text-brand-500 focus:ring-brand-500 cursor-pointer h-4 w-4"
+                                            checked={selectedIds.includes(p.id)}
+                                            onChange={(e) => {
+                                                if (e.target.checked) {
+                                                    setSelectedIds([...selectedIds, p.id]);
+                                                } else {
+                                                    setSelectedIds(selectedIds.filter(id => id !== p.id));
+                                                }
+                                            }}
+                                        />
+                                    </td>
+                                    <td className="px-6 py-4 text-sm font-medium text-gray-800">{p.fullName}</td>
                                     <td className="px-6 py-4 text-sm text-gray-500"><span className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded mr-1.5 font-medium">{p.idType}</span>{p.identification}</td>
                                     <td className="px-6 py-4 text-sm text-gray-500">{p.email}</td>
                                     <td className="px-6 py-4"><span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${p.program ? "bg-brand-50 text-brand-600" : "bg-gray-100 text-gray-600"}`}>{p.program?.name || "Sin programa"}</span></td>
@@ -198,9 +266,18 @@ export default function PersonasPage() {
                                     </td>
                                 </tr>
                             ))}
-                            {filtered.length === 0 && <tr><td colSpan={5} className="px-6 py-12 text-center text-gray-400 text-sm">{search ? "Sin resultados" : "No hay personas"}</td></tr>}
+                            {currentPersons.length === 0 && <tr><td colSpan={6} className="px-6 py-12 text-center text-gray-400 text-sm">{search ? "Sin resultados" : "No hay personas"}</td></tr>}
                         </tbody>
                     </table></div>
+                    {totalPages > 1 && (
+                        <div className="flex items-center justify-between border-t border-gray-100 bg-white px-6 py-4">
+                            <span className="text-sm text-gray-500">Mostrando {(currentPage - 1) * itemsPerPage + 1} a {Math.min(currentPage * itemsPerPage, filtered.length)} de {filtered.length} personas</span>
+                            <div className="flex gap-2">
+                                <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">Anterior</button>
+                                <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">Siguiente</button>
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
             {showModal && (
@@ -210,8 +287,7 @@ export default function PersonasPage() {
                         <form onSubmit={handleSubmit} className="space-y-4">
                             {error && <div className="rounded-lg bg-error-50 border border-error-100 p-3 text-sm text-error-600">{error}</div>}
                             <div className="grid grid-cols-2 gap-4">
-                                <div><label className="block text-sm font-medium text-gray-700 mb-2">Nombres</label><input type="text" value={form.firstName} onChange={e => setForm({ ...form, firstName: e.target.value })} required className={inputCls} placeholder="Nombres" /></div>
-                                <div><label className="block text-sm font-medium text-gray-700 mb-2">Apellidos</label><input type="text" value={form.lastName} onChange={e => setForm({ ...form, lastName: e.target.value })} required className={inputCls} placeholder="Apellidos" /></div>
+                                <div><label className="block text-sm font-medium text-gray-700 mb-2">Nombre Completo</label><input type="text" value={form.fullName} onChange={e => setForm({ ...form, fullName: e.target.value })} required className={inputCls} placeholder="Nombre Completo" /></div>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div><label className="block text-sm font-medium text-gray-700 mb-2">Tipo ID</label><select value={form.idType} onChange={e => setForm({ ...form, idType: e.target.value })} className={inputCls}>{ID_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
@@ -229,9 +305,18 @@ export default function PersonasPage() {
                 </div>
             )}
             <ConfirmModal
+                open={showBatchDeleteModal}
+                title="Eliminar Múltiples Personas"
+                message={`¿Estás seguro de que deseas eliminar a las ${selectedIds.length} personas seleccionadas? Esta acción no se puede deshacer.`}
+                confirmText={isDeletingBatch ? "Eliminando..." : "Eliminar Todo"}
+                variant="danger"
+                onConfirm={handleBatchDelete}
+                onCancel={() => setShowBatchDeleteModal(false)}
+            />
+            <ConfirmModal
                 open={!!confirmAction}
                 title="Eliminar Persona"
-                message={`¿Estás seguro de que deseas eliminar a "${confirmAction?.firstName} ${confirmAction?.lastName}"? Esta acción no se puede deshacer.`}
+                message={`¿Estás seguro de que deseas eliminar a "${confirmAction?.fullName}"? Esta acción no se puede deshacer.`}
                 confirmText="Eliminar"
                 variant="danger"
                 onConfirm={() => confirmAction && handleDelete(confirmAction.id)}

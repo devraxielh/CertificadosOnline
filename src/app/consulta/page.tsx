@@ -1,10 +1,11 @@
 "use client"
 import { useState } from "react"
 import toast, { Toaster } from "react-hot-toast"
+import { generateVerificationCode } from "@/lib/hash"
 
 interface Event { id: number; name: string }
 interface Certificate { id: number; participationType: string; templateHtml: string; event: Event; issueDate: string }
-interface Person { id: number; firstName: string; lastName: string; identification: string }
+interface Person { id: number; fullName: string; identification: string }
 interface Assignment { id: number; certificate: Certificate; person: Person; participationDetails?: string }
 
 export default function ConsultaPage() {
@@ -42,12 +43,13 @@ export default function ConsultaPage() {
     const viewCert = (a: Assignment) => {
         setPreviewHtml(
             a.certificate.templateHtml
-                .replace(/\{\{NOMBRE_COMPLETO\}\}/g, `${a.person.firstName} ${a.person.lastName}`)
+                .replace(/\{\{NOMBRE_COMPLETO\}\}/g, a.person.fullName)
                 .replace(/\{\{IDENTIFICACION\}\}/g, a.person.identification)
                 .replace(/\{\{TIPO_PARTICIPACION\}\}/g, a.certificate.participationType)
                 .replace(/\{\{NOMBRE_EVENTO\}\}/g, a.certificate.event?.name || "")
                 .replace(/\{\{FECHA_EXPEDICION\}\}/g, new Date(a.certificate.issueDate).toLocaleDateString("es-CO"))
                 .replace(/\{\{DETALLES_PARTICIPACION\}\}/g, a.participationDetails || "")
+                .replace(/\{\{CODIGO_VERIFICACION\}\}/g, generateVerificationCode({ fullName: a.person.fullName, identification: a.person.identification, participationType: a.certificate.participationType, eventName: a.certificate.event?.name || "", issueDate: a.certificate.issueDate, participationDetails: a.participationDetails || "" }))
         )
         setShowPreview(true)
     }
@@ -79,7 +81,7 @@ export default function ConsultaPage() {
 
     return (
         <div className="min-h-screen bg-gray-50 flex flex-col">
-            <Toaster position="top-right" />
+            <Toaster position="top-right" containerStyle={{ zIndex: 9999999 }} />
 
             {/* Header */}
             <header className="bg-white border-b border-gray-200 shadow-theme-xs">
@@ -93,12 +95,19 @@ export default function ConsultaPage() {
                             <p className="text-xs text-gray-400">Descarga tus certificados digitales</p>
                         </div>
                     </div>
-                    <a href="/login" className="text-xs text-gray-400 hover:text-brand-500 transition-colors">Administración →</a>
+                    <a href="/verificacion" className="text-xs text-gray-400 hover:text-brand-500 transition-colors">
+                        <div className="flex items-center gap-2">
+                            <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 008 4.07M3 15.364c.64-1.319 1-2.8 1-4.364 0-1.457.39-2.823 1.07-4" />
+                            </svg>
+                            <span className="flex-1">Validación Código de verificación</span>
+                        </div>
+                    </a>
                 </div>
             </header>
 
             {/* Main */}
-            <main className="max-w-10xl mx-auto px-6 py-10 flex-1">
+            <main className="flex-grow w-full max-w-7xl mx-auto px-6 py-10">
                 {/* Search */}
                 <div className="max-w-xl mx-auto mb-10">
                     <div className="text-center mb-8">
@@ -134,10 +143,10 @@ export default function ConsultaPage() {
                         <div className="rounded-2xl border border-gray-200 bg-white shadow-theme-xs p-5">
                             <div className="flex items-center gap-4">
                                 <div className="w-12 h-12 rounded-full bg-brand-500 flex items-center justify-center text-white text-lg font-bold shadow-theme-xs">
-                                    {person.firstName.charAt(0)}{person.lastName.charAt(0)}
+                                    {person.fullName.substring(0, 2).toUpperCase()}
                                 </div>
                                 <div>
-                                    <h3 className="text-base font-semibold text-gray-800">{person.firstName} {person.lastName}</h3>
+                                    <h3 className="text-base font-semibold text-gray-800">{person.fullName}</h3>
                                     <p className="text-sm text-gray-400">Identificación: {person.identification}</p>
                                 </div>
                                 <div className="ml-auto">
@@ -178,7 +187,7 @@ export default function ConsultaPage() {
                                                 onClick={() => viewCert(a)}
                                                 className="flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 shadow-theme-xs transition-colors"
                                             >
-                                                👁 Ver Certificado
+                                                Ver Certificado
                                             </button>
                                             <button
                                                 onClick={() => { viewCert(a); setTimeout(downloadPDF, 500) }}

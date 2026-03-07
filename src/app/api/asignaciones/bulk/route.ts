@@ -3,8 +3,7 @@ import { prisma } from "@/lib/prisma"
 
 interface BulkAssignmentRow {
     Identificacion: string;
-    Nombres: string;
-    Apellidos: string;
+    Nombre_Completo: string;
     Correo?: string;
     Detalles?: string;
 }
@@ -28,6 +27,8 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "Certificado no encontrado" }, { status: 404 })
         }
 
+        const requiresDetails = ["Ponente", "Conferencista", "Evaluador"].includes(cert.participationType);
+
         let assignedCount = 0;
         let errorCount = 0;
         const errors: string[] = [];
@@ -35,35 +36,46 @@ export async function POST(req: NextRequest) {
         for (const [index, row] of people.entries()) {
             const dataRow = row as BulkAssignmentRow;
 
-            if (!dataRow.Identificacion || !dataRow.Nombres || !dataRow.Apellidos) {
+            if (!dataRow.Identificacion || !dataRow.Nombre_Completo) {
                 errorCount++;
-                errors.push(`Fila ${index + 2}: Faltan datos obligatorios (Identificacion, Nombres, Apellidos).`);
+                errors.push(`Fila ${index + 2}: Faltan datos obligatorios (Identificacion, Nombre_Completo).`);
+                continue;
+            }
+
+            if (requiresDetails && !dataRow.Detalles) {
+                errorCount++;
+                errors.push(`Fila ${index + 2}: Falta columna Detalles (Obligatoria para tipo ${cert.participationType}).`);
                 continue;
             }
 
             try {
+                // Find program ID if name is provided
+                // Ensure identification is string and clean it up
+                const idStr = dataRow.Identificacion.toString().trim();
+                const rawName = dataRow.Nombre_Completo.toString().trim();
+                const formattedName = rawName.toLowerCase().split(' ').map((word: string) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+
                 // Upsert person
                 const person = await prisma.person.upsert({
-                    where: { identification: dataRow.Identificacion.toString() },
+                    where: { identification: idStr },
                     update: {
-                        firstName: dataRow.Nombres,
-                        lastName: dataRow.Apellidos,
-                        email: dataRow.Correo || "",
+                        fullName: formattedName,
+                        email: dataRow.Correo || ""
                     },
                     create: {
-                        identification: dataRow.Identificacion.toString(),
+                        identification: idStr,
                         idType: "CC", // Defaulting to CC for bulk uploads if no type is provided
-                        firstName: dataRow.Nombres,
-                        lastName: dataRow.Apellidos,
-                        email: dataRow.Correo || "",
+                        fullName: formattedName,
+                        email: dataRow.Correo ? dataRow.Correo.toString().trim() : ""
                     }
                 });
 
-                // Create assignment if it doesn't exist
+                // Create assignment if it doesn't exist with EXACT same details
                 const existingAssignment = await prisma.certificateAssignment.findFirst({
                     where: {
                         certificateId: certId,
-                        personId: person.id
+                        personId: person.id,
+                        participationDetails: dataRow.Detalles || null
                     }
                 });
 

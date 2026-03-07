@@ -5,11 +5,12 @@ import toast from "react-hot-toast"
 import * as XLSX from "xlsx"
 import ConfirmModal from "@/components/ConfirmModal"
 import SearchableSelect from "@/components/SearchableSelect"
+import { generateVerificationCode } from "@/lib/hash"
 
 interface Event { id: number; name: string }
 interface Program { id: number; name: string }
 interface Certificate { id: number; participationType: string; templateHtml: string; eventId: number; event: Event; issueDate: string; _count?: { assignments: number } }
-interface Person { id: number; firstName: string; lastName: string; identification: string; email: string }
+interface Person { id: number; fullName: string; identification: string; email: string }
 interface ViewerAssignment { id: number; certificate: Certificate; person: Person; createdAt: string; participationDetails?: string }
 
 const PARTICIPATION_TYPES = ["Ponente", "Conferencista", "Asistente", "Evaluador"]
@@ -46,6 +47,8 @@ export default function CertificadosPage() {
     const [viewerLoading, setViewerLoading] = useState(false)
     const [viewerSearch, setViewerSearch] = useState("")
     const [previewFromViewer, setPreviewFromViewer] = useState(false)
+    const [selectedAssignments, setSelectedAssignments] = useState<number[]>([])
+    const [deletingAssignments, setDeletingAssignments] = useState(false)
 
     const fetchData = useCallback(async () => { const [c, e] = await Promise.all([fetch("/api/certificados"), fetch("/api/eventos")]); setCertificates(await c.json()); setEvents(await e.json()); setLoading(false) }, [])
     useEffect(() => { fetchData() }, [fetchData])
@@ -69,13 +72,15 @@ export default function CertificadosPage() {
     const openEdit = (c: Certificate) => { setEditingCert(c); setForm({ participationType: c.participationType, templateHtml: c.templateHtml, eventId: c.eventId ? c.eventId.toString() : "", issueDate: new Date(c.issueDate).toISOString().split("T")[0] }); setError(""); setShowModal(true) }
     const openPreview = (c: Certificate) => {
         setPreviewFromViewer(false)
+        const sampleDetails = "Detalles de la participación (Ej. título de la conferencia)";
         setPreviewHtml(c.templateHtml
             .replace(/\{\{NOMBRE_COMPLETO\}\}/g, "Juan Pérez")
             .replace(/\{\{IDENTIFICACION\}\}/g, "1234567890")
             .replace(/\{\{TIPO_PARTICIPACION\}\}/g, c.participationType)
             .replace(/\{\{NOMBRE_EVENTO\}\}/g, c.event?.name || "")
             .replace(/\{\{FECHA_EXPEDICION\}\}/g, new Date(c.issueDate).toLocaleDateString("es-CO"))
-            .replace(/\{\{DETALLES_PARTICIPACION\}\}/g, "Detalles de la participación (Ej. título de la conferencia)")
+            .replace(/\{\{DETALLES_PARTICIPACION\}\}/g, sampleDetails)
+            .replace(/\{\{CODIGO_VERIFICACION\}\}/g, generateVerificationCode({ fullName: "Juan Pérez", identification: "1234567890", participationType: c.participationType, eventName: c.event?.name || "", issueDate: c.issueDate, participationDetails: sampleDetails }))
         );
         setShowPreview(true)
     }
@@ -126,13 +131,28 @@ export default function CertificadosPage() {
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ certificateId: assignCert.id, people: data })
                     })
-                    const resData = await res.json()
+                    const resData = await res.json().catch(() => ({}))
 
                     if (res.ok && resData.success) {
                         toast.success(`Asignación masiva completada: ${resData.assignedCount} asignados, ${resData.errorCount} errores.`)
                         if (resData.errorCount > 0) {
                             console.warn("Errores de asignación masiva:", resData.errors)
-                            toast.error(`Hubo errores con ${resData.errorCount} registros.Revisa la consola para detalles.`, { duration: 5000 })
+                            setTimeout(() => {
+                                toast.error(
+                                    <div className="flex flex-col gap-1">
+                                        <span className="font-semibold text-sm">Errores encontrados ({resData.errorCount}):</span>
+                                        <ul className="list-disc pl-4 text-xs space-y-0.5">
+                                            {resData.errors.slice(0, 4).map((errItem: string, i: number) => (
+                                                <li key={i}>{errItem}</li>
+                                            ))}
+                                        </ul>
+                                        {resData.errors.length > 4 && (
+                                            <span className="text-xs text-gray-500 font-medium">...y {resData.errors.length - 4} más.</span>
+                                        )}
+                                    </div>,
+                                    { duration: 8000, style: { maxWidth: '400px' } }
+                                )
+                            }, 500)
                         }
                         setShowAssignModal(false)
                         fetchData() // Refresh data to update assignment count
@@ -150,13 +170,31 @@ export default function CertificadosPage() {
         }
     }
 
+    const downloadExampleXLSX = () => {
+        const exampleData = [
+            {
+                Identificacion: "123456789",
+                Nombre_Completo: "Juan Carlos Perez Gomez",
+                Correo: "juan.perez@ejemplo.com",
+                ...(assignCert && ["Ponente", "Conferencista", "Evaluador"].includes(assignCert.participationType)
+                    ? { Detalles: "Ponencia sobre inteligencia artificial" }
+                    : {})
+            }
+        ];
+        const ws = XLSX.utils.json_to_sheet(exampleData);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Platilla");
+        XLSX.writeFile(wb, "Plantilla_Asignacion_Masiva.xlsx");
+    }
+
     const handleDelete = async (id: number) => {
         const res = await fetch(`/api/certificados/${id}`, { method: "DELETE" });
         if (res.ok) {
             toast.success("Certificado eliminado")
             fetchData()
         } else {
-            toast.error("Error al eliminar el certificado")
+            const errData = await res.json().catch(() => ({}))
+            toast.error(errData.error || "Error al eliminar el certificado")
         }
     }
 
@@ -173,9 +211,10 @@ export default function CertificadosPage() {
         setViewerSearch("")
         setViewerLoading(true)
         setShowViewerModal(true)
+        setSelectedAssignments([])
         try {
             const res = await fetch("/api/asignaciones")
-            const all: ViewerAssignment[] = await res.json()
+            const all: ViewerAssignment[] = await res.json().catch(() => ([]))
             setViewerAssignments(all.filter(a => a.certificate?.id === cert.id))
         } catch {
             toast.error("Error cargando asignaciones")
@@ -187,7 +226,7 @@ export default function CertificadosPage() {
     const filteredViewerAssignments = viewerAssignments.filter(a => {
         if (!viewerSearch) return true
         const q = viewerSearch.toLowerCase()
-        const name = `${a.person.firstName} ${a.person.lastName}`.toLowerCase()
+        const name = a.person.fullName.toLowerCase()
         return name.includes(q) || a.person.identification.includes(q)
     })
 
@@ -195,12 +234,13 @@ export default function CertificadosPage() {
         setPreviewFromViewer(true)
         setPreviewHtml(
             a.certificate.templateHtml
-                .replace(/\{\{NOMBRE_COMPLETO\}\}/g, `${a.person.firstName} ${a.person.lastName}`)
+                .replace(/\{\{NOMBRE_COMPLETO\}\}/g, a.person.fullName)
                 .replace(/\{\{IDENTIFICACION\}\}/g, a.person.identification)
                 .replace(/\{\{TIPO_PARTICIPACION\}\}/g, a.certificate.participationType)
                 .replace(/\{\{NOMBRE_EVENTO\}\}/g, a.certificate.event?.name || "")
                 .replace(/\{\{FECHA_EXPEDICION\}\}/g, new Date(a.certificate.issueDate).toLocaleDateString("es-CO"))
                 .replace(/\{\{DETALLES_PARTICIPACION\}\}/g, a.participationDetails || "")
+                .replace(/\{\{CODIGO_VERIFICACION\}\}/g, generateVerificationCode({ fullName: a.person.fullName, identification: a.person.identification, participationType: a.certificate.participationType, eventName: a.certificate.event?.name || "", issueDate: a.certificate.issueDate, participationDetails: a.participationDetails || "" }))
         )
         setShowViewerModal(false)
         setShowPreview(true)
@@ -211,6 +251,46 @@ export default function CertificadosPage() {
         if (previewFromViewer) {
             setShowViewerModal(true)
         }
+    }
+
+    const toggleAssignmentSelection = (id: number) => {
+        setSelectedAssignments(prev => prev.includes(id) ? prev.filter(aId => aId !== id) : [...prev, id])
+    }
+
+    const toggleAllAssignments = () => {
+        if (selectedAssignments.length === filteredViewerAssignments.length) {
+            setSelectedAssignments([])
+        } else {
+            setSelectedAssignments(filteredViewerAssignments.map(a => a.id))
+        }
+    }
+
+    const deleteSelectedAssignments = async () => {
+        if (selectedAssignments.length === 0) return;
+        if (!confirm(`¿Estás seguro de eliminar ${selectedAssignments.length} asignación(es)? Esta acción no se puede deshacer.`)) return;
+
+        setDeletingAssignments(true)
+        try {
+            const res = await fetch('/api/asignaciones/bulk-delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ assignmentIds: selectedAssignments })
+            })
+
+            if (res.ok) {
+                toast.success(`Se eliminaron ${selectedAssignments.length} asignaciones`)
+                // Refresh list locally to avoid full refetch if not needed, or just refetch
+                setViewerAssignments(prev => prev.filter(a => !selectedAssignments.includes(a.id)))
+                setSelectedAssignments([])
+                fetchData() // Refresh main table to update counts
+            } else {
+                const errData = await res.json().catch(() => ({}))
+                toast.error(errData.error || "Error al eliminar las asignaciones")
+            }
+        } catch (error) {
+            toast.error("Error de conexión al eliminar")
+        }
+        setDeletingAssignments(false)
     }
 
     const downloadPDF = async () => {
@@ -337,22 +417,19 @@ export default function CertificadosPage() {
             )}
             {showPreview && (
                 <div className="fixed inset-0 z-[99999] flex items-start pt-[5vh] justify-center bg-gray-900/50 p-4">
-                    <div className="w-full max-w-4xl rounded-2xl border border-gray-200 bg-white p-6 shadow-theme-lg max-h-[90vh] overflow-auto">
-                        <div className="flex items-center justify-between mb-5">
-                            <h3 className="text-lg font-semibold text-gray-800">Vista Previa</h3>
-                            <div className="flex items-center gap-2">
-                                <button onClick={downloadPDF} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 shadow-theme-xs transition-colors">
-                                    ⬇ Descargar PDF
-                                </button>
-                                <button onClick={closePreview} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 transition-colors">✕</button>
+                    <div className="w-full max-w-5xl rounded-2xl border border-gray-200 bg-white shadow-2xl flex flex-col max-h-[90vh]">
+                        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50 rounded-t-2xl">
+                            <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2"><svg className="w-5 h-5 text-brand-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>Vista Previa del Certificado</h3>
+                            <div className="flex items-center gap-3">
+                                <button onClick={downloadPDF} className="inline-flex items-center gap-2 rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white shadow-theme-xs hover:bg-brand-600 transition-colors"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>Descargar PDF</button>
+                                <button onClick={closePreview} className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-theme-xs transition-colors hover:bg-gray-50">Cerrar</button>
                             </div>
                         </div>
-                        <div id="cert-preview" className="flex justify-center mt-4 bg-gray-50 p-6 rounded-xl border border-gray-200 overflow-auto">
-                            <div
-                                style={{ transform: "scale(0.8)", transformOrigin: "top center", width: '800px', height: '600px' }}
-                                dangerouslySetInnerHTML={{ __html: previewHtml }}
-                                className="shadow-theme-md"
-                            />
+                        <div className="flex-1 overflow-auto bg-gray-100 p-8 flex items-center justify-center relative">
+                            <div className="absolute inset-0 pattern-dots opacity-30"></div>
+                            <div className="relative shadow-2xl bg-white border border-gray-200 overflow-hidden shrink-0" style={{ width: "800px", height: "600px", transform: "scale(1)", transformOrigin: "top center" }} id="cert-preview">
+                                <div dangerouslySetInnerHTML={{ __html: previewHtml }} className="w-full h-full" />
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -423,13 +500,20 @@ export default function CertificadosPage() {
                                         <p className="font-semibold mb-1">Formato requerido del Excel:</p>
                                         <ul className="list-disc list-inside space-y-0.5 ml-1">
                                             <li>Columna <b>Identificacion</b> (Obligatoria)</li>
-                                            <li>Columna <b>Nombres</b> (Obligatoria)</li>
-                                            <li>Columna <b>Apellidos</b> (Obligatoria)</li>
+                                            <li>Columna <b>Nombre_Completo</b> (Obligatoria)</li>
                                             <li>Columna <b>Correo</b> (Opcional)</li>
                                             {assignCert && ["Ponente", "Conferencista", "Evaluador"].includes(assignCert.participationType) && (
                                                 <li>Columna <b>Detalles</b> (Obligatoria para {assignCert.participationType})</li>
                                             )}
                                         </ul>
+                                        <button
+                                            type="button"
+                                            onClick={downloadExampleXLSX}
+                                            className="mt-3 text-xs text-brand-600 font-medium hover:text-brand-800 underline inline-flex items-center gap-1"
+                                        >
+                                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                            Descargar plantilla de ejemplo
+                                        </button>
                                     </div>
                                 </div>
                             )}
@@ -484,6 +568,14 @@ export default function CertificadosPage() {
                                     <table className="w-full">
                                         <thead>
                                             <tr className="border-b border-gray-100 bg-gray-50">
+                                                <th className="px-4 py-3 text-left w-10">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="rounded border-gray-300 text-brand-500 focus:ring-brand-500"
+                                                        checked={filteredViewerAssignments.length > 0 && selectedAssignments.length === filteredViewerAssignments.length}
+                                                        onChange={toggleAllAssignments}
+                                                    />
+                                                </th>
                                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Persona</th>
                                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Identificación</th>
                                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Detalles</th>
@@ -493,7 +585,15 @@ export default function CertificadosPage() {
                                         <tbody className="divide-y divide-gray-100">
                                             {filteredViewerAssignments.map(a => (
                                                 <tr key={a.id} className="hover:bg-gray-50 transition-colors">
-                                                    <td className="px-4 py-3 text-sm font-medium text-gray-800">{a.person.firstName} {a.person.lastName}</td>
+                                                    <td className="px-4 py-3">
+                                                        <input
+                                                            type="checkbox"
+                                                            className="rounded border-gray-300 text-brand-500 focus:ring-brand-500"
+                                                            checked={selectedAssignments.includes(a.id)}
+                                                            onChange={() => toggleAssignmentSelection(a.id)}
+                                                        />
+                                                    </td>
+                                                    <td className="px-4 py-3 text-sm font-medium text-gray-800">{a.person.fullName}</td>
                                                     <td className="px-4 py-3 text-sm text-gray-500 font-mono">{a.person.identification}</td>
                                                     <td className="px-4 py-3 text-sm text-gray-500 max-w-[200px] truncate">{a.participationDetails || '—'}</td>
                                                     <td className="px-4 py-3 text-right">
@@ -510,7 +610,18 @@ export default function CertificadosPage() {
                         </div>
                         {/* Footer */}
                         <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
-                            <span className="text-xs text-gray-500">{filteredViewerAssignments.length} asignación(es)</span>
+                            <div className="flex items-center gap-3">
+                                <span className="text-xs text-gray-500">{filteredViewerAssignments.length} asignación(es)</span>
+                                {selectedAssignments.length > 0 && (
+                                    <button
+                                        onClick={deleteSelectedAssignments}
+                                        disabled={deletingAssignments}
+                                        className="inline-flex rounded-lg border border-error-100 bg-error-50 px-3 py-1.5 text-xs font-medium text-error-600 hover:bg-error-100 transition-colors disabled:opacity-50"
+                                    >
+                                        {deletingAssignments ? "Eliminando..." : `Eliminar ${selectedAssignments.length} seleccionadas`}
+                                    </button>
+                                )}
+                            </div>
                             <button onClick={() => setShowViewerModal(false)} className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 shadow-theme-xs transition-colors">Cerrar</button>
                         </div>
                     </div>

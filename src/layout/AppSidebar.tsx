@@ -74,6 +74,7 @@ const navItems: NavItem[] = [
             </svg>
         ),
     },
+    /*{
     {
         name: "Certificados",
         path: "/dashboard/certificados",
@@ -83,7 +84,6 @@ const navItems: NavItem[] = [
             </svg>
         ),
     },
-    {
         name: "Asignaciones",
         path: "/dashboard/asignaciones",
         icon: (
@@ -92,6 +92,7 @@ const navItems: NavItem[] = [
             </svg>
         ),
     },
+    */
 ];
 
 const AppSidebar: React.FC = () => {

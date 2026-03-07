@@ -24,6 +24,17 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "Persona no encontrada con esa identificación" }, { status: 404 })
         }
 
+        const existing = await prisma.certificateAssignment.findFirst({
+            where: {
+                certificateId: parseInt(certificateId),
+                personId: person.id,
+                participationDetails: participationDetails || null
+            }
+        });
+        if (existing) {
+            return NextResponse.json({ error: "El certificado ya fue asignado a esta persona con esos mismos detalles." }, { status: 400 })
+        }
+
         const assignment = await prisma.certificateAssignment.create({
             data: {
                 certificateId: parseInt(certificateId),

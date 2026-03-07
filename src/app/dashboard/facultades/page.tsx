@@ -243,7 +243,7 @@ export default function FacultadesPage() {
                 message={`¿Estás seguro de que deseas eliminar la facultad "${confirmAction?.name}"? Esta acción no se puede deshacer y fallará si hay programas asignados.`}
                 confirmText="Eliminar"
                 variant="danger"
-                onConfirm={() => confirmAction && handleDelete(confirmAction.id)}
+                onConfirm={() => { confirmAction && handleDelete(confirmAction.id); setConfirmAction(null) }}
                 onCancel={() => setConfirmAction(null)}
             />
         </div>

@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useEffect } from 'react';
 import { Rnd } from 'react-rnd';
-import { Type, Image as ImageIcon, ImagePlus, AlignLeft, AlignCenter, AlignRight, Bold, Trash2, Code } from 'lucide-react';
+import { Type, Image as ImageIcon, ImagePlus, AlignLeft, AlignCenter, AlignRight, Bold, Trash2, Code, ShieldCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export interface CertElement {
@@ -76,13 +76,13 @@ export default function CertificateBuilder({
 
         state.elements.forEach(el => {
             const justify = el.style.textAlign === 'center' ? 'center' : el.style.textAlign === 'right' ? 'flex-end' : 'flex-start';
-            html += `  <div style="position: absolute; left: ${el.x}px; top: ${el.y}px; width: ${el.width}px; height: ${el.height}px; font-size: ${el.style.fontSize}px; color: ${el.style.color}; font-weight: ${el.style.fontWeight}; text-align: ${el.style.textAlign}; font-family: ${el.style.fontFamily}; display: flex; align-items: flex-start; justify-content: ${justify}; word-break: break-word; white-space: pre-wrap;">\n`;
+            html += `  <div style="position: absolute; left: ${el.x}px; top: ${el.y}px; width: ${el.width}px; height: ${el.height}px; font-size: ${el.style.fontSize}px; color: ${el.style.color}; font-weight: ${el.style.fontWeight}; font-family: ${el.style.fontFamily}; display: flex; align-items: flex-start; justify-content: ${justify}; word-break: break-word; white-space: pre-wrap;">`;
             if (el.type === 'image') {
-                html += `    <img src="${el.content}" style="width: 100%; height: 100%; object-fit: contain;" alt="Firma o Imagen" />\n`;
+                html += `<img src="${el.content}" style="width: 100%; height: 100%; object-fit: contain;" alt="Firma o Imagen" />`;
             } else {
-                html += `    ${el.content}\n`;
+                html += `<div style="width: 100%; height: 100%; text-align: ${el.style.textAlign};">${el.content}</div>`;
             }
-            html += `  </div>\n`;
+            html += `</div>\n`;
         });
 
         const stateJson = JSON.stringify(state).replace(/</g, '\\u003c');
@@ -195,6 +195,9 @@ export default function CertificateBuilder({
                     <button type="button" onClick={() => addElement('variable')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-brand-700 hover:bg-brand-50 rounded-lg transition-colors border border-brand-200 bg-brand-50/50">
                         <Code className="w-4 h-4" /> Variable
                     </button>
+                    <button type="button" onClick={() => addElement('variable', '{{CODIGO_VERIFICACION}}')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-indigo-700 hover:bg-indigo-50 rounded-lg transition-colors border border-indigo-200 bg-indigo-50/50">
+                        <ShieldCheck className="w-4 h-4" /> Cód. Verificación
+                    </button>
                     <div className="h-6 w-px bg-gray-200 mx-2"></div>
                     <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200">
                         <ImagePlus className="w-4 h-4" /> Firma / Img
@@ -295,6 +298,7 @@ export default function CertificateBuilder({
                                             <option value="{{FECHA_EXPEDICION}}">Fecha Expedición</option>
                                             <option value="{{TIPO_PARTICIPACION}}">Tipo Participación</option>
                                             <option value="{{DETALLES_PARTICIPACION}}">Detalles Participación (Ponen/Conf/Eval)</option>
+                                            <option value="{{CODIGO_VERIFICACION}}">Código de Verificación</option>
                                         </select>
                                     ) : (
                                         <textarea

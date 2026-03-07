@@ -10,17 +10,17 @@ datasource db {
 model Role {
   id          Int          @id @default(autoincrement())
   name        String       @unique
-  users       User[]
-  permissions Permission[]
   createdAt   DateTime     @default(now())
+  users       User[]
+  permissions Permission[] @relation("PermissionToRole")
 }
 
 model Permission {
   id          Int      @id @default(autoincrement())
   name        String   @unique
   description String?
-  roles       Role[]
   createdAt   DateTime @default(now())
+  roles       Role[]   @relation("PermissionToRole")
 }
 
 model User {
@@ -30,15 +30,17 @@ model User {
   name      String
   active    Boolean  @default(true)
   roleId    Int
-  role      Role     @relation(fields: [roleId], references: [id])
   createdAt DateTime @default(now())
+  role      Role     @relation(fields: [roleId], references: [id])
+
+  @@index([roleId], map: "User_roleId_fkey")
 }
 
 model Faculty {
   id       Int       @id @default(autoincrement())
   name     String    @unique
-  deanName String    @default("Sin asignar")
   address  String?
+  deanName String    @default("Sin asignar")
   email    String?
   phone    String?
   programs Program[]
@@ -47,27 +49,30 @@ model Faculty {
 model Program {
   id           Int      @id @default(autoincrement())
   name         String   @unique
-  directorName String   @default("Sin asignar")
+  facultyId    Int
   address      String?
+  directorName String   @default("Sin asignar")
   email        String?
   phone        String?
-  facultyId    Int
-  faculty      Faculty  @relation(fields: [facultyId], references: [id])
   persons      Person[]
+  faculty      Faculty  @relation(fields: [facultyId], references: [id])
+
+  @@index([facultyId], map: "Program_facultyId_fkey")
 }
 
 model Person {
   id             Int                     @id @default(autoincrement())
-  firstName      String
-  lastName       String
   idType         String
   identification String                  @unique
   phone          String?
   email          String
-  programId      Int?
-  program        Program?                @relation(fields: [programId], references: [id])
-  assignments    CertificateAssignment[]
   createdAt      DateTime                @default(now())
+  programId      Int?
+  fullName       String
+  assignments    CertificateAssignment[]
+  program        Program?                @relation(fields: [programId], references: [id])
+
+  @@index([programId], map: "Person_programId_fkey")
 }
 
 model Event {
@@ -77,30 +82,33 @@ model Event {
   endDate      DateTime
   description  String?       @db.Text
   eventType    String
+  createdAt    DateTime      @default(now())
   status       String        @default("Realizado")
   certificates Certificate[]
-  createdAt    DateTime      @default(now())
 }
 
 model Certificate {
-  id                Int                     @id @default(autoincrement())
+  id                Int      @id @default(autoincrement())
   participationType String
-  templateHtml      String                  @db.LongText
+  templateHtml      String   @db.LongText
   eventId           Int
-  event             Event                   @relation(fields: [eventId], references: [id])
   issueDate         DateTime
+  createdAt         DateTime @default(now())
+  event             Event    @relation(fields: [eventId], references: [id])
   assignments       CertificateAssignment[]
-  createdAt         DateTime                @default(now())
+
+  @@index([eventId], map: "Certificate_eventId_fkey")
 }
 
 model CertificateAssignment {
-  id            Int         @id @default(autoincrement())
-  certificateId Int
-  certificate   Certificate @relation(fields: [certificateId], references: [id])
-  personId      Int
-  person        Person      @relation(fields: [personId], references: [id])
+  id                   Int         @id @default(autoincrement())
+  certificateId        Int
+  personId             Int
   createdAt            DateTime    @default(now())
   participationDetails String?     @db.Text
+  certificate          Certificate @relation(fields: [certificateId], references: [id])
+  person               Person      @relation(fields: [personId], references: [id])
 
-  @@unique([certificateId, personId])
+  @@index([personId], map: "CertificateAssignment_personId_fkey")
+  @@index([certificateId], map: "CertificateAssignment_certificateId_fkey")
 }

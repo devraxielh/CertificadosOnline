@@ -3,10 +3,11 @@ import { useState, useEffect, useCallback } from "react"
 import toast from "react-hot-toast"
 import ConfirmModal from "@/components/ConfirmModal"
 import SearchableSelect from "@/components/SearchableSelect"
+import { generateVerificationCode } from "@/lib/hash"
 
 interface Event { id: number; name: string }
 interface Certificate { id: number; participationType: string; templateHtml: string; event: Event; issueDate: string }
-interface Person { id: number; firstName: string; lastName: string; identification: string; email: string }
+interface Person { id: number; fullName: string; identification: string; email: string }
 interface Assignment { id: number; certificate: Certificate; person: Person; createdAt: string; participationDetails?: string }
 
 export default function AsignacionesPage() {
@@ -23,7 +24,7 @@ export default function AsignacionesPage() {
     const [filterSearch, setFilterSearch] = useState("")
     const [confirmAction, setConfirmAction] = useState<{ type: "delete", assignment: Assignment } | null>(null)
 
-    const fetchData = useCallback(async () => { const [a, c] = await Promise.all([fetch("/api/asignaciones"), fetch("/api/certificados")]); setAssignments(await a.json()); setCertificates(await c.json()); setLoading(false) }, [])
+    const fetchData = useCallback(async () => { const [a, c] = await Promise.all([fetch("/api/asignaciones"), fetch("/api/certificados")]); setAssignments(await a.json().catch(() => [])); setCertificates(await c.json().catch(() => [])); setLoading(false) }, [])
     useEffect(() => { fetchData() }, [fetchData])
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -55,7 +56,8 @@ export default function AsignacionesPage() {
             toast.success("Asignación eliminada")
             fetchData()
         } else {
-            toast.error("Error al eliminar la asignación")
+            const errData = await res.json().catch(() => ({}))
+            toast.error(errData.error || "Error al eliminar la asignación")
         }
     }
     const handleConfirm = () => {
@@ -66,12 +68,13 @@ export default function AsignacionesPage() {
 
     const viewCert = (a: Assignment) => {
         setPreviewHtml(a.certificate.templateHtml
-            .replace(/\{\{NOMBRE_COMPLETO\}\}/g, `${a.person.firstName} ${a.person.lastName}`)
+            .replace(/\{\{NOMBRE_COMPLETO\}\}/g, a.person.fullName)
             .replace(/\{\{IDENTIFICACION\}\}/g, a.person.identification)
             .replace(/\{\{TIPO_PARTICIPACION\}\}/g, a.certificate.participationType)
             .replace(/\{\{NOMBRE_EVENTO\}\}/g, a.certificate.event?.name || "")
             .replace(/\{\{FECHA_EXPEDICION\}\}/g, new Date(a.certificate.issueDate).toLocaleDateString("es-CO"))
             .replace(/\{\{DETALLES_PARTICIPACION\}\}/g, a.participationDetails || "")
+            .replace(/\{\{CODIGO_VERIFICACION\}\}/g, generateVerificationCode({ fullName: a.person.fullName, identification: a.person.identification, participationType: a.certificate.participationType, eventName: a.certificate.event?.name || "", issueDate: a.certificate.issueDate, participationDetails: a.participationDetails || "" }))
         );
         setShowPreview(true)
     }
@@ -96,7 +99,7 @@ export default function AsignacionesPage() {
                     if (filterType && a.certificate.participationType !== filterType) return false
                     if (filterSearch) {
                         const q = filterSearch.toLowerCase()
-                        const name = `${a.person.firstName} ${a.person.lastName}`.toLowerCase()
+                        const name = a.person.fullName.toLowerCase()
                         if (!a.person.identification.includes(q) && !name.includes(q)) return false
                     }
                     return true
@@ -123,7 +126,7 @@ export default function AsignacionesPage() {
                             <tbody className="divide-y divide-gray-100">
                                 {filtered.map((a) => (
                                     <tr key={a.id} className="hover:bg-gray-50 transition-colors">
-                                        <td className="px-6 py-4 text-sm font-medium text-gray-800">{a.person.firstName} {a.person.lastName}</td>
+                                        <td className="px-6 py-4 text-sm font-medium text-gray-800">{a.person.fullName}</td>
                                         <td className="px-6 py-4 text-sm text-gray-500 font-mono">{a.person.identification}</td>
                                         <td className="px-6 py-4 text-sm text-gray-500">{a.certificate.event?.name}</td>
                                         <td className="px-6 py-4"><span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${pb[a.certificate.participationType] || "bg-gray-100 text-gray-600"}`}>{a.certificate.participationType}</span></td>
@@ -188,7 +191,7 @@ export default function AsignacionesPage() {
             <ConfirmModal
                 open={!!confirmAction}
                 title="Eliminar asignación"
-                message={`¿Estás seguro de eliminar la asignación de "${confirmAction?.assignment.person.firstName} ${confirmAction?.assignment.person.lastName}" para el certificado del evento "${confirmAction?.assignment.certificate.event?.name}"? Esta acción no se puede deshacer.`}
+                message={`¿Estás seguro de eliminar la asignación de "${confirmAction?.assignment.person.fullName}" para el certificado del evento "${confirmAction?.assignment.certificate.event?.name}"? Esta acción no se puede deshacer.`}
                 confirmText="Eliminar"
                 variant="danger"
                 onConfirm={handleConfirm}

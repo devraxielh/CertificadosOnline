@@ -4,13 +4,21 @@ import * as XLSX from "xlsx"
 import ConfirmModal from "@/components/ConfirmModal"
 import SearchableSelect from "@/components/SearchableSelect"
 import toast from "react-hot-toast"
+import CertificateBuilder from "@/components/CertificateBuilder"
+import { generateVerificationCode } from "@/lib/hash"
 
 interface Event { id: number; name: string; startDate: string; endDate: string; description: string; eventType: string; status: string }
 const EVENT_STATUSES = ["Pendiente", "Realizado"]
 const EVENT_TYPES = ["Diplomado", "Foro", "Charla", "Conversatorio", "Simposio", "Congreso", "Capacitación", "Curso", "Ponencia", "Taller"]
+const PARTICIPATION_TYPES = ["Ponente", "Conferencista", "Asistente", "Evaluador"]
+
+interface Certificate { id: number; participationType: string; templateHtml: string; eventId: number; issueDate: string; _count?: { assignments: number } }
+interface Person { id: number; fullName: string; identification: string; email: string }
+interface ViewerAssignment { id: number; certificate: Certificate; person: Person; createdAt: string; participationDetails?: string }
+interface ExtendedEvent extends Event { certificates?: Certificate[] }
 
 export default function EventosPage() {
-    const [events, setEvents] = useState<Event[]>([])
+    const [events, setEvents] = useState<ExtendedEvent[]>([])
     const [loading, setLoading] = useState(true)
     const [showModal, setShowModal] = useState(false)
     const [editingEvent, setEditingEvent] = useState<Event | null>(null)
@@ -27,9 +35,37 @@ export default function EventosPage() {
     const [importData, setImportData] = useState<any[]>([])
     const [importing, setImporting] = useState(false)
     const fileInputRef = useRef<HTMLInputElement>(null)
-    const [confirmAction, setConfirmAction] = useState<{ type: "delete" | "status"; event: Event } | null>(null)
+    const [confirmAction, setConfirmAction] = useState<{ type: "delete" | "status" | "cert-delete"; event?: Event; cert?: Certificate } | null>(null)
 
-    const fetchEvents = useCallback(async () => { const res = await fetch("/api/eventos"); setEvents(await res.json()); setLoading(false) }, [])
+    // Certificates Management State
+    const [showCertModal, setShowCertModal] = useState(false)
+    const [editingCert, setEditingCert] = useState<Certificate | null>(null)
+    const [certForm, setCertForm] = useState({ participationType: "Asistente", templateHtml: "", eventId: "", issueDate: "" })
+    const [certError, setCertError] = useState("")
+
+    // Assignment State
+    const [showAssignModal, setShowAssignModal] = useState(false)
+    const [assignMode, setAssignMode] = useState<'individual' | 'bulk'>('individual')
+    const [assignCert, setAssignCert] = useState<Certificate | null>(null)
+    const [assignForm, setAssignForm] = useState({ identification: "", details: "" })
+    const [bulkFile, setBulkFile] = useState<File | null>(null)
+    const [bulkLoading, setBulkLoading] = useState(false)
+
+    // Viewer State
+    const [showViewerModal, setShowViewerModal] = useState(false)
+    const [viewerCert, setViewerCert] = useState<Certificate | null>(null)
+    const [viewerAssignments, setViewerAssignments] = useState<ViewerAssignment[]>([])
+    const [viewerLoading, setViewerLoading] = useState(false)
+    const [viewerSearch, setViewerSearch] = useState("")
+    const [selectedAssignments, setSelectedAssignments] = useState<number[]>([])
+    const [deletingAssignments, setDeletingAssignments] = useState(false)
+
+    // Preview
+    const [showPreview, setShowPreview] = useState(false)
+    const [previewHtml, setPreviewHtml] = useState("")
+    const [previewFromViewer, setPreviewFromViewer] = useState(false)
+
+    const fetchEvents = useCallback(async () => { const res = await fetch("/api/eventos"); setEvents(await res.json().catch(() => ([]))); setLoading(false) }, [])
     useEffect(() => { fetchEvents() }, [fetchEvents])
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -52,7 +88,8 @@ export default function EventosPage() {
             toast.success("Evento eliminado")
             fetchEvents()
         } else {
-            toast.error("Error al eliminar el evento")
+            const errData = await res.json().catch(() => ({}))
+            toast.error(errData.error || "Error al eliminar el evento")
         }
     }
     const toggleStatus = async (ev: Event) => {
@@ -62,12 +99,25 @@ export default function EventosPage() {
             toast.success(`Estado del evento: ${newStatus}`)
             fetchEvents()
         } else {
-            toast.error("Error al cambiar el estado")
+            const errData = await res.json().catch(() => ({}))
+            toast.error(errData.error || "Error al cambiar el estado")
         }
     }
     const askDelete = (ev: Event) => setConfirmAction({ type: "delete", event: ev })
     const askToggle = (ev: Event) => setConfirmAction({ type: "status", event: ev })
-    const handleConfirm = () => { if (!confirmAction) return; if (confirmAction.type === "delete") handleDelete(confirmAction.event.id); else toggleStatus(confirmAction.event); setConfirmAction(null) }
+    const askCertDelete = (cert: Certificate) => setConfirmAction({ type: "cert-delete", cert: cert })
+
+    const handleConfirm = () => {
+        if (!confirmAction) return;
+        if (confirmAction.type === "delete" && confirmAction.event) {
+            handleDelete(confirmAction.event.id);
+        } else if (confirmAction.type === "status" && confirmAction.event) {
+            toggleStatus(confirmAction.event);
+        } else if (confirmAction.type === "cert-delete" && confirmAction.cert) {
+            handleCertDelete(confirmAction.cert.id);
+        }
+        setConfirmAction(null)
+    }
     const openCreate = () => { setEditingEvent(null); setForm({ name: "", startDate: "", endDate: "", description: "", eventType: "Diplomado", status: activeTab }); setError(""); setShowModal(true) }
     const openEdit = (ev: Event) => { setEditingEvent(ev); setForm({ name: ev.name, startDate: new Date(ev.startDate).toISOString().split("T")[0], endDate: new Date(ev.endDate).toISOString().split("T")[0], description: ev.description || "", eventType: ev.eventType, status: ev.status || "Realizado" }); setError(""); setShowModal(true) }
     const formatDate = (d: string) => new Date(d).toLocaleDateString("es-CO", { year: "numeric", month: "short", day: "numeric" })
@@ -101,6 +151,144 @@ export default function EventosPage() {
         const wb = XLSX.utils.book_new()
         XLSX.utils.book_append_sheet(wb, ws, "Eventos")
         XLSX.writeFile(wb, "plantilla_eventos.xlsx")
+    }
+
+    // --- CERTIFICATE ACTIONS ---
+    const handleCertSubmit = async (e: React.FormEvent) => {
+        e.preventDefault(); setCertError("")
+        const url = editingCert ? `/api/certificados/${editingCert.id}` : "/api/certificados"
+        const res = await fetch(url, { method: editingCert ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(certForm) })
+        if (res.ok) {
+            toast.success(editingCert ? "Certificado actualizado" : "Certificado creado")
+            setShowCertModal(false); setEditingCert(null); setCertForm({ participationType: "Asistente", templateHtml: "", eventId: "", issueDate: "" }); fetchEvents()
+        } else {
+            const data = await res.json().catch(() => ({}))
+            const err = data.error || "Error al guardar el certificado"
+            toast.error(err); setCertError(err)
+        }
+    }
+    const handleCertDelete = async (id: number) => {
+        const res = await fetch(`/api/certificados/${id}`, { method: "DELETE" });
+        if (res.ok) { toast.success("Certificado eliminado"); fetchEvents() } else { const err = await res.json().catch(() => ({})); toast.error(err.error || "Error al eliminar el certificado") }
+    }
+    const openCreateCert = (eventId: number) => { setEditingCert(null); setCertForm({ participationType: "Asistente", templateHtml: "", eventId: eventId.toString(), issueDate: new Date().toISOString().split("T")[0] }); setCertError(""); setShowCertModal(true) }
+    const openEditCert = (c: Certificate) => { setEditingCert(c); setCertForm({ participationType: c.participationType, templateHtml: c.templateHtml, eventId: c.eventId.toString(), issueDate: new Date(c.issueDate).toISOString().split("T")[0] }); setCertError(""); setShowCertModal(true) }
+    const openCertPreview = (c: Certificate, evt: ExtendedEvent) => {
+        setPreviewFromViewer(false)
+        const sampleDetails = "Detalles de participación (Ej. título de la conferencia)";
+        setPreviewHtml(c.templateHtml
+            .replace(/\{\{NOMBRE_COMPLETO\}\}/g, "Juan Pérez")
+            .replace(/\{\{IDENTIFICACION\}\}/g, "1234567890")
+            .replace(/\{\{TIPO_PARTICIPACION\}\}/g, c.participationType)
+            .replace(/\{\{NOMBRE_EVENTO\}\}/g, evt.name || "")
+            .replace(/\{\{FECHA_EXPEDICION\}\}/g, new Date(c.issueDate).toLocaleDateString("es-CO"))
+            .replace(/\{\{DETALLES_PARTICIPACION\}\}/g, sampleDetails)
+            .replace(/\{\{CODIGO_VERIFICACION\}\}/g, generateVerificationCode({ fullName: "Juan Pérez", identification: "1234567890", participationType: c.participationType, eventName: evt.name || "", issueDate: c.issueDate, participationDetails: sampleDetails }))
+        );
+        setShowPreview(true)
+    }
+
+    // --- ASSIGNMENT ACTIONS ---
+    const openAssignModal = (cert: Certificate) => {
+        setAssignCert(cert)
+        setAssignMode('individual')
+        setAssignForm({ identification: "", details: "" })
+        setBulkFile(null)
+        setShowAssignModal(true)
+    }
+    const handleAssignSubmit = async (e: React.FormEvent) => {
+        e.preventDefault()
+        if (!assignCert) return
+        if (assignMode === 'individual') {
+            const res = await fetch("/api/asignaciones", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ certificateId: assignCert.id, identification: assignForm.identification, participationDetails: assignForm.details })
+            })
+            if (res.ok) { toast.success("Certificado asignado"); setShowAssignModal(false); fetchEvents() }
+            else { const data = await res.json().catch(() => ({})); toast.error(data.error || "Error al asignar") }
+        } else if (assignMode === 'bulk' && bulkFile) {
+            setBulkLoading(true)
+            try {
+                const reader = new FileReader(); reader.onload = async (evt) => {
+                    const bstr = evt.target?.result; const wb = XLSX.read(bstr, { type: 'binary' })
+                    const wsname = wb.SheetNames[0]; const ws = wb.Sheets[wsname]; const data = XLSX.utils.sheet_to_json(ws)
+                    const res = await fetch("/api/asignaciones/bulk", {
+                        method: "POST", headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ certificateId: assignCert.id, people: data })
+                    })
+                    const resData = await res.json().catch(() => ({ error: "Respuesta inválida del servidor" }))
+                    if (res.ok && resData.success) {
+                        toast.success(`Masivo: ${resData.assignedCount} asignados, ${resData.errorCount} errores.`)
+                        if (resData.errorCount > 0) {
+                            setTimeout(() => {
+                                toast.error(
+                                    <div className="flex flex-col gap-1">
+                                        <span className="font-semibold text-sm">Errores encontrados ({resData.errorCount}):</span>
+                                        <ul className="list-disc pl-4 text-xs space-y-0.5">
+                                            {resData.errors.slice(0, 4).map((errItem: string, i: number) => (
+                                                <li key={i}>{errItem}</li>
+                                            ))}
+                                        </ul>
+                                        {resData.errors.length > 4 && (
+                                            <span className="text-xs text-gray-500 font-medium">...y {resData.errors.length - 4} más.</span>
+                                        )}
+                                    </div>,
+                                    { duration: 8000, style: { maxWidth: '400px' } }
+                                )
+                            }, 500)
+                        }
+                        setShowAssignModal(false); fetchEvents()
+                    } else toast.error(resData.error || "Error masivo")
+                    setBulkLoading(false)
+                }; reader.readAsBinaryString(bulkFile)
+            } catch { toast.error("Error leyendo Excel"); setBulkLoading(false) }
+        }
+    }
+    const downloadExampleXLSX = () => {
+        const exampleData = [{ Identificacion: "123456789", Nombre_Completo: "Juan Carlos Perez Gomez", Correo: "juan@ejemplo.com", ...(assignCert && ["Ponente", "Conferencista", "Evaluador"].includes(assignCert.participationType) ? { Detalles: "Ponencia magistral" } : {}) }];
+        const ws = XLSX.utils.json_to_sheet(exampleData); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Platilla"); XLSX.writeFile(wb, "Plantilla_Asignacion.xlsx");
+    }
+
+    // --- VIEWER ACTIONS ---
+    const openViewerModal = async (cert: Certificate) => {
+        setViewerCert(cert); setViewerSearch(""); setViewerLoading(true); setShowViewerModal(true); setSelectedAssignments([])
+        try { const res = await fetch("/api/asignaciones"); const all: ViewerAssignment[] = await res.json().catch(() => ([])); setViewerAssignments(all.filter(a => a.certificate?.id === cert.id)) }
+        catch { toast.error("Error cargando asignaciones"); setViewerAssignments([]) }
+        setViewerLoading(false)
+    }
+    const filteredViewerAssignments = viewerAssignments.filter(a => {
+        if (!viewerSearch) return true
+        const q = viewerSearch.toLowerCase(); const name = a.person.fullName.toLowerCase()
+        return name.includes(q) || a.person.identification.includes(q)
+    })
+    const toggleAssignmentSelection = (id: number) => setSelectedAssignments(prev => prev.includes(id) ? prev.filter(aId => aId !== id) : [...prev, id])
+    const toggleAllAssignments = () => selectedAssignments.length === filteredViewerAssignments.length ? setSelectedAssignments([]) : setSelectedAssignments(filteredViewerAssignments.map(a => a.id))
+    const deleteSelectedAssignments = async () => {
+        if (selectedAssignments.length === 0 || !confirm(`¿Eliminar ${selectedAssignments.length} asignación(es)?`)) return;
+        setDeletingAssignments(true)
+        try {
+            const res = await fetch('/api/asignaciones/bulk-delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ assignmentIds: selectedAssignments }) })
+            if (res.ok) {
+                toast.success(`Se eliminaron ${selectedAssignments.length}`); setViewerAssignments(prev => prev.filter(a => !selectedAssignments.includes(a.id))); setSelectedAssignments([]); fetchEvents()
+            } else {
+                const errData = await res.json().catch(() => ({}));
+                toast.error(errData.error || "Error al eliminar")
+            }
+        } catch { toast.error("Error de conexión al eliminar") }
+        setDeletingAssignments(false)
+    }
+    const viewAssignmentCert = (a: ViewerAssignment, eventName: string) => {
+        setPreviewFromViewer(true)
+        setPreviewHtml(a.certificate.templateHtml.replace(/\{\{NOMBRE_COMPLETO\}\}/g, a.person.fullName).replace(/\{\{IDENTIFICACION\}\}/g, a.person.identification).replace(/\{\{TIPO_PARTICIPACION\}\}/g, a.certificate.participationType).replace(/\{\{NOMBRE_EVENTO\}\}/g, eventName).replace(/\{\{FECHA_EXPEDICION\}\}/g, new Date(a.certificate.issueDate).toLocaleDateString("es-CO")).replace(/\{\{DETALLES_PARTICIPACION\}\}/g, a.participationDetails || "").replace(/\{\{CODIGO_VERIFICACION\}\}/g, generateVerificationCode({ fullName: a.person.fullName, identification: a.person.identification, participationType: a.certificate.participationType, eventName: eventName, issueDate: a.certificate.issueDate, participationDetails: a.participationDetails || "" })))
+        setShowViewerModal(false); setShowPreview(true)
+    }
+
+    const downloadPDF = async () => {
+        const { default: html2canvas } = await import("html2canvas"); const { jsPDF } = await import("jspdf")
+        const el = document.getElementById("cert-preview"); if (!el) return
+        const tId = toast.loading("Generando PDF...")
+        try { const canvas = await html2canvas(el, { scale: 2, useCORS: true }); const img = canvas.toDataURL("image/png"); const pdf = new jsPDF({ orientation: "landscape", unit: "px", format: [canvas.width / 2, canvas.height / 2] }); pdf.addImage(img, "PNG", 0, 0, canvas.width / 2, canvas.height / 2); pdf.save("certificado.pdf"); toast.success("PDF descargado", { id: tId }) }
+        catch { toast.error("Error al generar", { id: tId }) }
     }
 
     const handleFileUpload = (file: File) => {
@@ -233,7 +421,47 @@ export default function EventosPage() {
                             </div>
                             <h3 className="text-base font-semibold text-gray-800 mb-1.5">{ev.name}</h3>
                             <p className="text-sm text-gray-500 mb-4 line-clamp-2">{ev.description}</p>
-                            <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+
+                            {/* Certificates Section */}
+                            <div className="mt-4 border-t border-gray-100 pt-3">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Certificados</span>
+                                    <button onClick={() => openCreateCert(ev.id)} className="text-xs text-brand-500 font-medium hover:text-brand-600 transition-colors">+ Añadir</button>
+                                </div>
+                                {ev.certificates && ev.certificates.length > 0 ? (
+                                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                                        {ev.certificates.map((cert: Certificate) => (
+                                            <div key={cert.id} className="p-2 rounded-lg border border-gray-100 bg-gray-50 flex items-center justify-between group/cert cursor-default hover:bg-white hover:border-gray-200 transition-colors">
+                                                <div className="flex items-center gap-2 overflow-hidden">
+                                                    <div className="w-8 h-8 rounded bg-brand-50 flex items-center justify-center text-brand-500 flex-shrink-0">
+                                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" /></svg>
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <p className="text-xs font-medium text-gray-800 truncate" title={cert.participationType}>{cert.participationType}</p>
+                                                        <div className="flex items-center gap-1.5 mt-0.5">
+                                                            <button onClick={() => openViewerModal(cert)} className="text-[10px] font-medium text-brand-600 hover:text-brand-800 transition-colors hover:underline flex items-center gap-0.5">
+                                                                <span className="w-4 h-4 rounded-full bg-brand-100 flex items-center justify-center text-brand-700">{cert._count?.assignments || 0}</span> Asig.
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="flex gap-1 opacity-0 group-hover/cert:opacity-100 transition-opacity ml-2">
+                                                    <button onClick={() => openCertPreview(cert, ev)} title="Vista previa" className="p-1 rounded text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors"><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg></button>
+                                                    <button onClick={() => openEditCert(cert)} title="Editar" className="p-1 rounded text-gray-400 hover:bg-gray-100 hover:text-brand-600 transition-colors"><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg></button>
+                                                    <button onClick={() => openAssignModal(cert)} title="Asignar" className="p-1 rounded text-gray-400 hover:bg-gray-100 hover:text-success-600 transition-colors"><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg></button>
+                                                    <button onClick={() => askCertDelete(cert)} title="Eliminar" className="p-1 rounded text-gray-400 hover:bg-gray-100 hover:text-error-600 transition-colors"><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="py-4 text-center rounded-lg border border-dashed border-gray-200 bg-gray-50/50">
+                                        <p className="text-xs text-gray-400">Sin certificados creados.</p>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="flex items-center justify-between pt-3 border-t border-gray-100 mt-3">
                                 <span className="text-xs text-gray-400 font-medium">📅 {formatDate(ev.startDate)} — {formatDate(ev.endDate)}</span>
                                 <button onClick={() => askToggle(ev)} className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${(ev.status || "Realizado") === "Realizado" ? "bg-success-50 text-success-600 hover:bg-success-100" : "bg-gray-100 text-gray-500 hover:bg-gray-200"}`}>
                                     <span className={`w-1.5 h-1.5 rounded-full ${(ev.status || "Realizado") === "Realizado" ? "bg-success-500" : "bg-gray-400"}`}></span>
@@ -352,13 +580,169 @@ export default function EventosPage() {
             )}
             <ConfirmModal
                 open={!!confirmAction}
-                title={confirmAction?.type === "delete" ? "Eliminar evento" : "Cambiar estado"}
-                message={confirmAction?.type === "delete" ? `¿Estás seguro de eliminar "${confirmAction?.event.name}"? Esta acción no se puede deshacer.` : `¿Cambiar el estado de "${confirmAction?.event.name}" a ${(confirmAction?.event.status || "Realizado") === "Realizado" ? "Pendiente" : "Realizado"}?`}
-                confirmText={confirmAction?.type === "delete" ? "Eliminar" : "Cambiar estado"}
-                variant={confirmAction?.type === "delete" ? "danger" : "warning"}
+                title={confirmAction?.type === "delete" ? "Eliminar evento" : confirmAction?.type === "cert-delete" ? "Eliminar certificado" : "Cambiar estado"}
+                message={confirmAction?.type === "delete" ? `¿Estás seguro de eliminar "${confirmAction?.event?.name}"? Esta acción no se puede deshacer.` : confirmAction?.type === "cert-delete" ? `¿Estás seguro de eliminar este certificado de tipo "${confirmAction?.cert?.participationType}"?` : `¿Cambiar el estado de "${confirmAction?.event?.name}" a ${(confirmAction?.event?.status || "Realizado") === "Realizado" ? "Pendiente" : "Realizado"}?`}
+                confirmText={confirmAction?.type === "status" ? "Cambiar estado" : "Eliminar"}
+                variant={confirmAction?.type === "delete" || confirmAction?.type === "cert-delete" ? "danger" : "warning"}
                 onConfirm={handleConfirm}
                 onCancel={() => setConfirmAction(null)}
             />
+
+            {/* Certificate Modal */}
+            {showCertModal && (
+                <div className="fixed inset-0 z-[99999] flex items-start pt-[5vh] justify-center bg-gray-900/50 p-4">
+                    <div className="w-full max-w-[90rem] rounded-2xl border border-gray-200 bg-white shadow-theme-lg max-h-[90vh] flex flex-col">
+                        <div className="flex-none px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                            <h3 className="text-lg font-semibold text-gray-800">{editingCert ? "Editar Certificado" : "Nuevo Certificado"}</h3>
+                            <button onClick={() => setShowCertModal(false)} className="text-gray-400 hover:text-gray-600 transition-colors p-1">✕</button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto px-6 py-4">
+                            <form id="cert-form" onSubmit={handleCertSubmit} className="space-y-5">
+                                {certError && <div className="rounded-lg bg-error-50 border border-error-100 p-3 text-sm text-error-600">{certError}</div>}
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">Evento</label>
+                                        <select value={certForm.eventId} onChange={e => setCertForm({ ...certForm, eventId: e.target.value })} required disabled={!editingCert && !!certForm.eventId} className={ic}>
+                                            <option value="">Seleccionar evento</option>
+                                            {events.map(ev => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">Tipo de Participación</label>
+                                        <SearchableSelect value={certForm.participationType} onChange={(val) => setCertForm({ ...certForm, participationType: val })} placeholder="Ej: Asistente" options={PARTICIPATION_TYPES.map(t => ({ label: t, value: t }))} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">Fecha de Expedición</label>
+                                        <input type="date" value={certForm.issueDate} onChange={e => setCertForm({ ...certForm, issueDate: e.target.value })} required className={ic} />
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <label className="block text-sm font-medium text-gray-700">Diseño HTML</label>
+                                        <span className="text-xs text-gray-500 font-mono">Usar variables: {'{{NOMBRE_COMPLETO}}'}, {'{{CODIGO_VERIFICACION}}'}, etc.</span>
+                                    </div>
+                                    <CertificateBuilder initialHtml={certForm.templateHtml} onChange={html => setCertForm({ ...certForm, templateHtml: html })} />
+                                </div>
+                            </form>
+                        </div>
+                        <div className="flex-none px-6 py-4 border-t border-gray-100 flex gap-3 justify-end bg-gray-50 rounded-b-2xl">
+                            <button type="button" onClick={() => setShowCertModal(false)} className="rounded-lg border border-gray-200 bg-white px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 shadow-theme-xs transition-colors">Cancelar</button>
+                            <button type="submit" form="cert-form" className="rounded-lg bg-brand-500 px-5 py-2.5 text-sm font-medium text-white hover:bg-brand-600 shadow-theme-xs transition-colors">Guardar Certificado</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Assignments Modal */}
+            {showAssignModal && assignCert && (
+                <div className="fixed inset-0 z-[99999] flex items-start pt-[5vh] justify-center bg-gray-900/50 p-4">
+                    <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-6 shadow-theme-lg">
+                        <h3 className="text-lg font-semibold text-gray-800 mb-1">Asignar Certificado</h3>
+                        <p className="text-sm text-gray-500 mb-5">{events.find(e => e.id === assignCert.eventId)?.name} — <span className="font-medium text-brand-600">{assignCert.participationType}</span></p>
+
+                        <div className="flex p-1 bg-gray-100 rounded-lg mb-6">
+                            <button onClick={() => setAssignMode('individual')} className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${assignMode === 'individual' ? 'bg-white shadow-theme-xs text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>Individual</button>
+                            <button onClick={() => setAssignMode('bulk')} className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${assignMode === 'bulk' ? 'bg-white shadow-theme-xs text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>Masivo (Excel)</button>
+                        </div>
+
+                        <form onSubmit={handleAssignSubmit} className="space-y-4">
+                            {assignMode === 'individual' ? (
+                                <>
+                                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Identificación de la Persona *</label><input type="text" value={assignForm.identification} onChange={e => setAssignForm({ ...assignForm, identification: e.target.value })} required className={ic} placeholder="Ej: 123456789" /></div>
+                                    {["Ponente", "Conferencista", "Evaluador"].includes(assignCert.participationType) && (
+                                        <div><label className="block text-sm font-medium text-gray-700 mb-1">Detalles de Participación *</label><input type="text" value={assignForm.details} onChange={e => setAssignForm({ ...assignForm, details: e.target.value })} required className={ic} placeholder="Ej: Título de la conferencia..." /></div>
+                                    )}
+                                </>
+                            ) : (
+                                <div className="space-y-4">
+                                    <div className="rounded-lg bg-blue-50 border border-blue-100 p-4">
+                                        <div className="flex items-start gap-3">
+                                            <div className="p-2 bg-blue-100/50 rounded-lg text-blue-600 mt-0.5"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></div>
+                                            <div>
+                                                <h4 className="text-sm font-semibold text-blue-800 mb-1">Instrucciones de carga masiva</h4>
+                                                <p className="text-xs text-blue-600 leading-relaxed">Debe ser un archivo Excel (.xlsx, .xls) con las siguientes columnas exactas: <strong className="font-semibold">Identificacion, Nombre_Completo, Correo</strong>. <br /> Si el usuario no existe en la base de datos se creará automáticamente.</p>
+                                                {assignCert && ["Ponente", "Conferencista", "Evaluador"].includes(assignCert.participationType) && <p className="text-xs text-blue-700 leading-relaxed font-medium mt-1 mt-1">⚠️ Requiere columna adicional: <strong className="font-semibold">Detalles</strong>.</p>}
+                                                <button type="button" onClick={downloadExampleXLSX} className="mt-3 text-xs font-semibold text-blue-700 bg-white/60 hover:bg-white px-3 py-1.5 rounded-md border border-blue-200 transition-colors inline-flex items-center gap-1.5"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg> Descargar Plantilla</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="border-2 border-dashed border-gray-200 rounded-xl p-6 text-center hover:bg-gray-50 flex flex-col items-center justify-center transition-colors">
+                                        <div className="w-12 h-12 bg-brand-50 text-brand-600 rounded-full flex items-center justify-center mb-3">
+                                            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                        </div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Subir Archivo Excel</label>
+                                        <p className="text-xs text-gray-500 mb-4">Seleccione su hoja de cálculo completada (.xlsx)</p>
+                                        <input type="file" accept=".xlsx,.xls,.csv" required onChange={e => setBulkFile(e.target.files?.[0] || null)} className="w-full max-w-xs text-sm text-gray-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-brand-50 file:text-brand-700 hover:file:bg-brand-100 transition-colors cursor-pointer" />
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="flex gap-3 pt-4 border-t border-gray-100">
+                                <button type="button" onClick={() => setShowAssignModal(false)} className="flex-1 rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors shadow-theme-xs disabled:opacity-50">Cancelar</button>
+                                <button type="submit" disabled={bulkLoading} className="flex-1 rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-brand-600 transition-colors shadow-theme-xs disabled:opacity-50 flex justify-center items-center">
+                                    {bulkLoading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : "Asignar"}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Viewer Modal */}
+            {showViewerModal && viewerCert && (
+                <div className="fixed inset-0 z-[99999] flex items-start pt-[5vh] justify-center bg-gray-900/50 p-4">
+                    <div className="w-full max-w-3xl rounded-2xl border border-gray-200 bg-white shadow-theme-lg max-h-[85vh] flex flex-col">
+                        <div className="px-6 pt-6 pb-4 border-b border-gray-100">
+                            <div className="flex items-center justify-between mb-1">
+                                <h3 className="text-lg font-semibold text-gray-800">Asignaciones del Certificado</h3>
+                                <button onClick={() => setShowViewerModal(false)} className="text-gray-400 hover:text-gray-600">✕</button>
+                            </div>
+                            <input type="text" placeholder="Buscar por nombre o ID..." value={viewerSearch} onChange={e => setViewerSearch(e.target.value)} className={ic} />
+                        </div>
+                        <div className="flex-1 overflow-y-auto px-6 py-4">
+                            {viewerLoading ? <div className="flex justify-center py-12"><div className="w-8 h-8 border-4 border-brand-200 border-t-brand-500 rounded-full animate-spin"></div></div> : (
+                                <table className="w-full">
+                                    <thead className="bg-gray-50 border-b border-gray-100"><tr className="text-left text-xs font-medium text-gray-500 uppercase">
+                                        <th className="px-4 py-3"><input type="checkbox" checked={filteredViewerAssignments.length > 0 && selectedAssignments.length === filteredViewerAssignments.length} onChange={toggleAllAssignments} /></th>
+                                        <th className="px-4 py-3">Persona</th><th className="px-4 py-3 text-right">Acción</th>
+                                    </tr></thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {filteredViewerAssignments.map(a => (
+                                            <tr key={a.id} className="hover:bg-gray-50"><td className="px-4 py-2"><input type="checkbox" checked={selectedAssignments.includes(a.id)} onChange={() => toggleAssignmentSelection(a.id)} /></td><td className="px-4 py-2 text-sm">{a.person.fullName}</td><td className="px-4 py-2 text-right"><button onClick={() => viewAssignmentCert(a, events.find(e => e.id === viewerCert.eventId)?.name || "")} className="text-xs text-brand-600">Ver Certificado</button></td></tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            )}
+                        </div>
+                        <div className="px-6 py-4 border-t border-gray-100 flex justify-between">
+                            {selectedAssignments.length > 0 && <button onClick={deleteSelectedAssignments} disabled={deletingAssignments} className="text-error-600 text-sm font-medium disabled:opacity-50">Eliminar Seleccionadas</button>}
+                            <div className="flex-1"></div>
+                            <button onClick={() => setShowViewerModal(false)} className="text-sm font-medium text-gray-700">Cerrar</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Preview Modal */}
+            {showPreview && (
+                <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-gray-900/80 p-4">
+                    <div className="w-full max-w-5xl rounded-2xl border border-gray-200 bg-white shadow-2xl flex flex-col max-h-[90vh]">
+                        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50 rounded-t-2xl">
+                            <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2"><svg className="w-5 h-5 text-brand-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>Vista Previa del Certificado</h3>
+                            <div className="flex items-center gap-3">
+                                {previewFromViewer && <button onClick={downloadPDF} className="inline-flex items-center gap-2 rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white shadow-theme-xs hover:bg-brand-600 transition-colors"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>Descargar PDF</button>}
+                                <button onClick={() => { setShowPreview(false); if (previewFromViewer) setShowViewerModal(true) }} className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-theme-xs transition-colors hover:bg-gray-50">Cerrar</button>
+                            </div>
+                        </div>
+                        <div className="flex-1 overflow-auto bg-gray-100 p-8 flex items-center justify-center relative">
+                            <div className="absolute inset-0 pattern-dots opacity-30"></div>
+                            <div className="relative shadow-2xl bg-white border border-gray-200 overflow-hidden shrink-0" style={{ width: "800px", height: "600px", transform: "scale(1)", transformOrigin: "top center" }} id="cert-preview">
+                                <div dangerouslySetInnerHTML={{ __html: previewHtml }} className="w-full h-full" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

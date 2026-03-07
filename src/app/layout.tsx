@@ -18,10 +18,10 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="es">
+    <html lang="es" suppressHydrationWarning>
       <body className={`${outfit.variable} font-outfit antialiased`}>
         <AuthProvider>
-          <Toaster position="top-right" toastOptions={{ duration: 4000, style: { fontSize: '14px' } }} />
+          <Toaster position="top-right" containerStyle={{ zIndex: 9999999 }} toastOptions={{ duration: 4000, style: { fontSize: '14px' } }} />
           {children}
         </AuthProvider>
       </body>

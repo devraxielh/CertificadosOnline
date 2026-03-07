@@ -2,7 +2,16 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 
 export async function GET() {
-    const events = await prisma.event.findMany({ orderBy: { startDate: "desc" } })
+    const events = await prisma.event.findMany({
+        orderBy: { startDate: "desc" },
+        include: {
+            certificates: {
+                include: {
+                    _count: { select: { assignments: true } }
+                }
+            }
+        }
+    })
     return NextResponse.json(events)
 }
 

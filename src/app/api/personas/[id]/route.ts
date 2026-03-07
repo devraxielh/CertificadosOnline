@@ -5,11 +5,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     try {
         const { id } = await params
         const data = await req.json()
+        if (data.fullName) {
+            data.fullName = data.fullName.toLowerCase().split(' ').map((word: string) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+        }
         const person = await prisma.person.update({
             where: { id: parseInt(id) },
             data: {
                 ...data,
-                programId: data.programId ? parseInt(data.programId) : null,
+                programId: data.programId && data.programId !== "" ? parseInt(data.programId) : null,
             },
         })
         return NextResponse.json(person)
