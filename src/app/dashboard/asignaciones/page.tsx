@@ -39,25 +39,25 @@ export default function AsignacionesPage() {
             })
         })
         if (res.ok) {
-            toast.success("Certificado asignado")
+            toast.success("Certificado asignado exitosamente", { style: { background: '#F0FDF4', color: '#166534', border: '1px solid #4ADE80' }, iconTheme: { primary: '#22C55E', secondary: '#F0FDF4' } })
             setForm({ certificateId: "", identification: "", details: "" })
             fetchData()
             setShowModal(false)
         } else {
             const data = await res.json().catch(() => ({}))
             const err = data.error || "Error al asignar"
-            toast.error(err)
+            toast.error(err, { style: { background: '#FEF2F2', color: '#991B1B', border: '1px solid #F87171' } })
             setError(err)
         }
     }
     const handleDelete = async (id: number) => {
         const res = await fetch(`/api/asignaciones/${id}`, { method: "DELETE" });
         if (res.ok) {
-            toast.success("Asignación eliminada")
+            toast.success("Asignación eliminada", { style: { background: '#FEF2F2', color: '#991B1B', border: '1px solid #F87171' }, iconTheme: { primary: '#DC2626', secondary: '#FEF2F2' } })
             fetchData()
         } else {
             const errData = await res.json().catch(() => ({}))
-            toast.error(errData.error || "Error al eliminar la asignación")
+            toast.error(errData.error || "Error al eliminar la asignación", { style: { background: '#FEF2F2', color: '#991B1B', border: '1px solid #F87171' } })
         }
     }
     const handleConfirm = () => {
@@ -80,10 +80,10 @@ export default function AsignacionesPage() {
     }
     const downloadPDF = async () => { const { default: html2canvas } = await import("html2canvas"); const { jsPDF } = await import("jspdf"); const el = document.getElementById("cert-preview"); if (!el) return; const canvas = await html2canvas(el, { scale: 2, useCORS: true }); const img = canvas.toDataURL("image/png"); const pdf = new jsPDF({ orientation: "landscape", unit: "px", format: [canvas.width / 2, canvas.height / 2] }); pdf.addImage(img, "PNG", 0, 0, canvas.width / 2, canvas.height / 2); pdf.save("certificado.pdf") }
     const ic = "w-full rounded-lg border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:border-brand-300 focus:outline-none focus:ring-3 focus:ring-brand-500/10 shadow-theme-xs"
-    const pb: Record<string, string> = { Ponente: "bg-warning-50 text-warning-600", Evaluador: "bg-success-50 text-success-600", Asistente: "bg-brand-50 text-brand-600" }
+    const pb: Record<string, string> = { Ponente: "bg-warning-50 text-warning-600", Evaluador: "bg-success-50 text-success-600", Asistente: "bg-brand-50 text-brand-600", Docente: "bg-blue-50 text-blue-600", Conferencista: "bg-purple-50 text-purple-600" }
 
     const selectedCert = certificates.find(c => c.id.toString() === form.certificateId)
-    const requiresDetails = selectedCert && ["Ponente", "Conferencista", "Evaluador"].includes(selectedCert.participationType)
+    const requiresDetails = selectedCert && ["Ponente", "Conferencista", "Docente", "Evaluador"].includes(selectedCert.participationType)
 
     return (
         <div className="space-y-6">

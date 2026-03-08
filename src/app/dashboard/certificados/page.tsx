@@ -13,7 +13,7 @@ interface Certificate { id: number; participationType: string; templateHtml: str
 interface Person { id: number; fullName: string; identification: string; email: string }
 interface ViewerAssignment { id: number; certificate: Certificate; person: Person; createdAt: string; participationDetails?: string }
 
-const PARTICIPATION_TYPES = ["Ponente", "Conferencista", "Asistente", "Evaluador"]
+const PARTICIPATION_TYPES = ["Ponente", "Conferencista", "Docente", "Asistente", "Evaluador"]
 const DEFAULT_TEMPLATE = "";
 
 export default function CertificadosPage() {
@@ -58,12 +58,12 @@ export default function CertificadosPage() {
         const url = editingCert ? `/api/certificados/${editingCert.id}` : "/api/certificados"
         const res = await fetch(url, { method: editingCert ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) })
         if (res.ok) {
-            toast.success(editingCert ? "Certificado actualizado" : "Certificado creado")
+            toast.success(editingCert ? "Certificado actualizado" : "Certificado creado", { style: { background: '#F0FDF4', color: '#166534', border: '1px solid #4ADE80' }, iconTheme: { primary: '#22C55E', secondary: '#F0FDF4' } })
             setShowModal(false); setEditingCert(null); setForm({ participationType: "Asistente", templateHtml: DEFAULT_TEMPLATE, eventId: "", issueDate: "" }); fetchData()
         } else {
             const data = await res.json().catch(() => ({}))
             const err = data.error || "Error al guardar el certificado"
-            toast.error(err)
+            toast.error(err, { style: { background: '#FEF2F2', color: '#991B1B', border: '1px solid #F87171' } })
             setError(err)
         }
     }
@@ -108,12 +108,12 @@ export default function CertificadosPage() {
                 })
             })
             if (res.ok) {
-                toast.success("Certificado asignado individualmente")
+                toast.success("Certificado asignado individualmente", { style: { background: '#F0FDF4', color: '#166534', border: '1px solid #4ADE80' }, iconTheme: { primary: '#22C55E', secondary: '#F0FDF4' } })
                 setShowAssignModal(false)
                 fetchData() // Refresh data to update assignment count
             } else {
                 const data = await res.json().catch(() => ({}))
-                toast.error(data.error || "Error al asignar")
+                toast.error(data.error || "Error al asignar", { style: { background: '#FEF2F2', color: '#991B1B', border: '1px solid #F87171' } })
             }
         } else if (assignMode === 'bulk' && bulkFile) {
             setBulkLoading(true)
@@ -316,7 +316,7 @@ export default function CertificadosPage() {
     const formatDate = (d: string) => new Date(d).toLocaleDateString("es-CO", { year: "numeric", month: "short", day: "numeric" })
     const inputClasses = "w-full rounded-lg border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:border-brand-300 focus:outline-none focus:ring-3 focus:ring-brand-500/10 shadow-theme-xs transition-shadow"
     const ic = "w-full rounded-lg border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:border-brand-300 focus:outline-none focus:ring-3 focus:ring-brand-500/10 shadow-theme-xs"
-    const pb: Record<string, string> = { Ponente: "bg-warning-50 text-warning-600", Evaluador: "bg-success-50 text-success-600", Asistente: "bg-brand-50 text-brand-600", Conferencista: "bg-purple-50 text-purple-600" }
+    const pb: Record<string, string> = { Ponente: "bg-warning-50 text-warning-600", Evaluador: "bg-success-50 text-success-600", Asistente: "bg-brand-50 text-brand-600", Docente: "bg-blue-50 text-blue-600", Conferencista: "bg-purple-50 text-purple-600" }
 
     const filteredCertificates = certificates.filter(c => {
         if (filterEvent && c.event?.name !== filterEvent) return false

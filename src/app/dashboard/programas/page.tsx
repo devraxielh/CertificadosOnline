@@ -18,11 +18,13 @@ export default function ProgramasPage() {
     const [search, setSearch] = useState("")
     const [facultyFilter, setFacultyFilter] = useState("")
     const [error, setError] = useState("")
-    const [confirmAction, setConfirmAction] = useState<Program | null>(null)
+    const [confirmAction, setConfirmAction] = useState<{ type: "delete-single" | "delete-bulk"; program?: Program } | null>(null)
     const [showImportModal, setShowImportModal] = useState(false)
     const [importing, setImporting] = useState(false)
     const [importData, setImportData] = useState<any[]>([])
     const fileInputRef = useRef<HTMLInputElement>(null)
+    const [selectedPrograms, setSelectedPrograms] = useState<number[]>([])
+    const [deleting, setDeleting] = useState(false)
 
     const fetchData = useCallback(async () => {
         try {
@@ -55,7 +57,7 @@ export default function ProgramasPage() {
         })
 
         if (res.ok) {
-            toast.success(editingProgram ? "Programa actualizado" : "Programa creado")
+            toast.success(editingProgram ? "Programa actualizado" : "Programa creado", { style: { background: '#F0FDF4', color: '#166534', border: '1px solid #4ADE80' }, iconTheme: { primary: '#22C55E', secondary: '#F0FDF4' } })
             setShowModal(false)
             setEditingProgram(null)
             setForm({ name: "", directorName: "", address: "", email: "", phone: "", facultyId: "" })
@@ -71,12 +73,36 @@ export default function ProgramasPage() {
     const handleDelete = async (id: number) => {
         const res = await fetch(`/api/programas/${id}`, { method: "DELETE" })
         if (res.ok) {
-            toast.success("Programa eliminado")
+            toast.success("Programa eliminado", { style: { background: '#FEF2F2', color: '#991B1B', border: '1px solid #F87171' }, iconTheme: { primary: '#DC2626', secondary: '#FEF2F2' } })
             fetchData()
         } else {
-            toast.error("Error al eliminar el programa")
+            toast.error("Error al eliminar el programa", { style: { background: '#FEF2F2', color: '#991B1B', border: '1px solid #F87171' } })
         }
         setConfirmAction(null)
+    }
+
+    const handleBulkDelete = async () => {
+        setDeleting(true)
+        try {
+            const res = await fetch('/api/programas/bulk-delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ programIds: selectedPrograms }) })
+            if (res.ok) {
+                toast.success(`Se eliminaron ${selectedPrograms.length} programas`, { style: { background: '#FEF2F2', color: '#991B1B', border: '1px solid #F87171' }, iconTheme: { primary: '#DC2626', secondary: '#FEF2F2' } })
+                setSelectedPrograms([]); fetchData()
+            } else {
+                const errData = await res.json().catch(() => ({}));
+                toast.error(errData.error || "Error al eliminar")
+            }
+        } catch { toast.error("Error de conexión al eliminar") }
+        setDeleting(false); setConfirmAction(null)
+    }
+
+    const handleConfirm = () => {
+        if (!confirmAction) return;
+        if (confirmAction.type === "delete-single" && confirmAction.program) {
+            handleDelete(confirmAction.program.id)
+        } else if (confirmAction.type === "delete-bulk") {
+            handleBulkDelete(); return
+        }
     }
 
     const openCreate = () => {
@@ -98,6 +124,9 @@ export default function ProgramasPage() {
         const matchFaculty = facultyFilter ? String(p.facultyId) === facultyFilter : true
         return matchSearch && matchFaculty
     })
+
+    const toggleProgramSelection = (id: number) => setSelectedPrograms(prev => prev.includes(id) ? prev.filter(pid => pid !== id) : [...prev, id])
+    const toggleAllPrograms = () => selectedPrograms.length === filtered.length ? setSelectedPrograms([]) : setSelectedPrograms(filtered.map(p => p.id))
 
     const inputClasses = "w-full rounded-lg border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:border-brand-300 focus:outline-none focus:ring-3 focus:ring-brand-500/10 shadow-theme-xs transition-colors"
 
@@ -173,6 +202,12 @@ export default function ProgramasPage() {
                     <p className="text-gray-500 text-sm mt-1">Gestión de programas académicos y sus facultades</p>
                 </div>
                 <div className="flex items-center gap-3">
+                    {selectedPrograms.length > 0 && (
+                        <button onClick={() => setConfirmAction({ type: "delete-bulk" })} disabled={deleting} className="inline-flex items-center gap-2 rounded-lg border border-error-200 bg-error-50 px-4 py-2.5 text-sm font-medium text-error-600 hover:bg-error-100 shadow-theme-xs transition-colors disabled:opacity-50">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            Eliminar ({selectedPrograms.length})
+                        </button>
+                    )}
                     <button onClick={() => { setShowImportModal(true); setImportData([]) }} className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 shadow-theme-xs transition-colors">
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
                         Importar
@@ -205,6 +240,7 @@ export default function ProgramasPage() {
                     <table className="w-full text-left text-sm text-gray-500">
                         <thead className="bg-gray-50 text-xs uppercase text-gray-500 border-b border-gray-200">
                             <tr>
+                                <th className="px-4 py-4"><input type="checkbox" checked={filtered.length > 0 && selectedPrograms.length === filtered.length} onChange={toggleAllPrograms} className="w-4 h-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500/10" /></th>
                                 <th className="px-6 py-4 font-medium">Nombre del Programa</th>
                                 <th className="px-6 py-4 font-medium">Director</th>
                                 <th className="px-6 py-4 font-medium">Contacto</th>
@@ -221,13 +257,14 @@ export default function ProgramasPage() {
                                 </tr>
                             ) : programs.length === 0 ? (
                                 <tr>
-                                    <td colSpan={3} className="px-6 py-12 text-center text-gray-400">
+                                    <td colSpan={6} className="px-6 py-12 text-center text-gray-400">
                                         No hay programas registrados
                                     </td>
                                 </tr>
                             ) : (
                                 filtered.map((prog) => (
-                                    <tr key={prog.id} className="hover:bg-gray-50/50 transition-colors">
+                                    <tr key={prog.id} className={`hover:bg-gray-50/50 transition-colors ${selectedPrograms.includes(prog.id) ? "bg-brand-50/30" : ""}`}>
+                                        <td className="px-4 py-4"><input type="checkbox" checked={selectedPrograms.includes(prog.id)} onChange={() => toggleProgramSelection(prog.id)} className="w-4 h-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500/10" /></td>
                                         <td className="px-6 py-4 font-medium text-gray-800">{prog.name}</td>
                                         <td className="px-6 py-4">
                                             <div className="flex flex-col">
@@ -248,9 +285,9 @@ export default function ProgramasPage() {
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 text-right">
-                                            <div className="flex items-center justify-end gap-2 text-gray-400">
-                                                <button onClick={() => openEdit(prog)} className="p-1.5 hover:text-brand-500 rounded-lg transition-colors" title="Editar">✏️</button>
-                                                <button onClick={() => setConfirmAction(prog)} className="p-1.5 hover:text-error-500 rounded-lg transition-colors" title="Eliminar">🗑️</button>
+                                            <div className="inline-flex items-center gap-1">
+                                                <button onClick={() => openEdit(prog)} title="Editar" className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-brand-600 transition-colors"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg></button>
+                                                <button onClick={() => setConfirmAction({ type: "delete-single", program: prog })} title="Eliminar" className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-error-600 transition-colors"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
                                             </div>
                                         </td>
                                     </tr>
@@ -359,11 +396,11 @@ export default function ProgramasPage() {
 
             <ConfirmModal
                 open={!!confirmAction}
-                title="Eliminar Programa"
-                message={`¿Estás seguro de que deseas eliminar el programa "${confirmAction?.name}"? Esta acción no se puede deshacer y fallará si hay personas asignadas.`}
+                title={confirmAction?.type === "delete-bulk" ? "Eliminar programas" : "Eliminar Programa"}
+                message={confirmAction?.type === "delete-bulk" ? `¿Estás seguro de que deseas eliminar los ${selectedPrograms.length} programas seleccionados? Esta acción no se puede deshacer.` : `¿Estás seguro de que deseas eliminar el programa "${confirmAction?.program?.name}"? Esta acción no se puede deshacer y fallará si hay personas asignadas.`}
                 confirmText="Eliminar"
                 variant="danger"
-                onConfirm={() => confirmAction && handleDelete(confirmAction.id)}
+                onConfirm={handleConfirm}
                 onCancel={() => setConfirmAction(null)}
             />
 

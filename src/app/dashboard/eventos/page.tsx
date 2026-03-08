@@ -10,7 +10,7 @@ import { generateVerificationCode } from "@/lib/hash"
 interface Event { id: number; name: string; startDate: string; endDate: string; description: string; eventType: string; status: string }
 const EVENT_STATUSES = ["Pendiente", "Realizado"]
 const EVENT_TYPES = ["Diplomado", "Foro", "Charla", "Conversatorio", "Simposio", "Congreso", "Capacitación", "Curso", "Ponencia", "Taller"]
-const PARTICIPATION_TYPES = ["Ponente", "Conferencista", "Asistente", "Evaluador"]
+const PARTICIPATION_TYPES = ["Ponente", "Conferencista", "Asistente", "Evaluador", "Docente"]
 
 interface Certificate { id: number; participationType: string; templateHtml: string; eventId: number; issueDate: string; _count?: { assignments: number } }
 interface Person { id: number; fullName: string; identification: string; email: string }
@@ -35,7 +35,8 @@ export default function EventosPage() {
     const [importData, setImportData] = useState<any[]>([])
     const [importing, setImporting] = useState(false)
     const fileInputRef = useRef<HTMLInputElement>(null)
-    const [confirmAction, setConfirmAction] = useState<{ type: "delete" | "status" | "cert-delete"; event?: Event; cert?: Certificate } | null>(null)
+    const [confirmAction, setConfirmAction] = useState<{ type: "delete" | "status" | "cert-delete" | "viewer-delete" | "send-emails"; event?: Event; cert?: Certificate } | null>(null)
+    const [sendingEmails, setSendingEmails] = useState(false)
 
     // Certificates Management State
     const [showCertModal, setShowCertModal] = useState(false)
@@ -73,19 +74,19 @@ export default function EventosPage() {
         const url = editingEvent ? `/api/eventos/${editingEvent.id}` : "/api/eventos"
         const res = await fetch(url, { method: editingEvent ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) })
         if (res.ok) {
-            toast.success(editingEvent ? "Evento actualizado" : "Evento creado")
+            toast.success(editingEvent ? "Evento actualizado" : "Evento creado", { style: { background: '#F0FDF4', color: '#166534', border: '1px solid #4ADE80' }, iconTheme: { primary: '#22C55E', secondary: '#F0FDF4' } })
             setShowModal(false); setEditingEvent(null); setForm({ name: "", startDate: "", endDate: "", description: "", eventType: "Diplomado", status: "Realizado" }); fetchEvents()
         } else {
             const data = await res.json().catch(() => ({}))
             const err = data.error || "Error al guardar el evento"
-            toast.error(err)
+            toast.error(err, { style: { background: '#FEF2F2', color: '#991B1B', border: '1px solid #F87171' } })
             setError(err)
         }
     }
     const handleDelete = async (id: number) => {
         const res = await fetch(`/api/eventos/${id}`, { method: "DELETE" })
         if (res.ok) {
-            toast.success("Evento eliminado")
+            toast.success("Evento eliminado", { style: { background: '#FEF2F2', color: '#991B1B', border: '1px solid #F87171' }, iconTheme: { primary: '#DC2626', secondary: '#FEF2F2' } })
             fetchEvents()
         } else {
             const errData = await res.json().catch(() => ({}))
@@ -106,16 +107,45 @@ export default function EventosPage() {
     const askDelete = (ev: Event) => setConfirmAction({ type: "delete", event: ev })
     const askToggle = (ev: Event) => setConfirmAction({ type: "status", event: ev })
     const askCertDelete = (cert: Certificate) => setConfirmAction({ type: "cert-delete", cert: cert })
+    const askSendEmails = () => setConfirmAction({ type: "send-emails" })
+
+    const handleSendEmails = async () => {
+        if (!viewerCert) return
+        const ids = selectedAssignments.length > 0 ? selectedAssignments : viewerAssignments.map(a => a.id)
+        if (ids.length === 0) { toast.error("No hay personas para notificar"); return }
+
+        setSendingEmails(true)
+        const tId = toast.loading(`Enviando ${ids.length} correos...`)
+        try {
+            const res = await fetch("/api/emails/send-certificate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ assignmentIds: ids })
+            })
+            const data = await res.json()
+            if (res.ok) {
+                toast.success(`¡Enviados! ${data.sent} correos enviados correctamente.${data.failed > 0 ? ` (${data.failed} fallaron)` : ""}`, { id: tId, duration: 5000 })
+                setSelectedAssignments([])
+            } else {
+                toast.error(data.error || "Error al enviar correos", { id: tId })
+            }
+        } catch (error) {
+            toast.error("Error de conexión al enviar correos", { id: tId })
+        } finally {
+            setSendingEmails(false)
+            setConfirmAction(null)
+        }
+    }
 
     const handleConfirm = () => {
-        if (!confirmAction) return;
-        if (confirmAction.type === "delete" && confirmAction.event) {
-            handleDelete(confirmAction.event.id);
-        } else if (confirmAction.type === "status" && confirmAction.event) {
-            toggleStatus(confirmAction.event);
-        } else if (confirmAction.type === "cert-delete" && confirmAction.cert) {
-            handleCertDelete(confirmAction.cert.id);
+        if (!confirmAction) return
+        if (confirmAction.type === "send-emails") { handleSendEmails(); return }
+        if (confirmAction.type === "delete" && confirmAction.event) handleDelete(confirmAction.event.id)
+        else if (confirmAction.type === "status" && confirmAction.event) toggleStatus(confirmAction.event)
+        else if (confirmAction.type === "cert-delete" && confirmAction.cert) {
+            handleCertDelete(confirmAction.cert.id)
         }
+        else if (confirmAction.type === "viewer-delete") executeViewerDelete()
         setConfirmAction(null)
     }
     const openCreate = () => { setEditingEvent(null); setForm({ name: "", startDate: "", endDate: "", description: "", eventType: "Diplomado", status: activeTab }); setError(""); setShowModal(true) }
@@ -159,17 +189,17 @@ export default function EventosPage() {
         const url = editingCert ? `/api/certificados/${editingCert.id}` : "/api/certificados"
         const res = await fetch(url, { method: editingCert ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(certForm) })
         if (res.ok) {
-            toast.success(editingCert ? "Certificado actualizado" : "Certificado creado")
+            toast.success(editingCert ? "Certificado actualizado" : "Certificado creado", { style: { background: '#F0FDF4', color: '#166534', border: '1px solid #4ADE80' }, iconTheme: { primary: '#22C55E', secondary: '#F0FDF4' } })
             setShowCertModal(false); setEditingCert(null); setCertForm({ participationType: "Asistente", templateHtml: "", eventId: "", issueDate: "" }); fetchEvents()
         } else {
             const data = await res.json().catch(() => ({}))
             const err = data.error || "Error al guardar el certificado"
-            toast.error(err); setCertError(err)
+            toast.error(err, { style: { background: '#FEF2F2', color: '#991B1B', border: '1px solid #F87171' } }); setCertError(err)
         }
     }
     const handleCertDelete = async (id: number) => {
         const res = await fetch(`/api/certificados/${id}`, { method: "DELETE" });
-        if (res.ok) { toast.success("Certificado eliminado"); fetchEvents() } else { const err = await res.json().catch(() => ({})); toast.error(err.error || "Error al eliminar el certificado") }
+        if (res.ok) { toast.success("Certificado eliminado", { style: { background: '#FEF2F2', color: '#991B1B', border: '1px solid #F87171' }, iconTheme: { primary: '#DC2626', secondary: '#FEF2F2' } }); fetchEvents() } else { const err = await res.json().catch(() => ({})); toast.error(err.error || "Error al eliminar el certificado") }
     }
     const openCreateCert = (eventId: number) => { setEditingCert(null); setCertForm({ participationType: "Asistente", templateHtml: "", eventId: eventId.toString(), issueDate: new Date().toISOString().split("T")[0] }); setCertError(""); setShowCertModal(true) }
     const openEditCert = (c: Certificate) => { setEditingCert(c); setCertForm({ participationType: c.participationType, templateHtml: c.templateHtml, eventId: c.eventId.toString(), issueDate: new Date(c.issueDate).toISOString().split("T")[0] }); setCertError(""); setShowCertModal(true) }
@@ -204,8 +234,8 @@ export default function EventosPage() {
                 method: "POST", headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ certificateId: assignCert.id, identification: assignForm.identification, participationDetails: assignForm.details })
             })
-            if (res.ok) { toast.success("Certificado asignado"); setShowAssignModal(false); fetchEvents() }
-            else { const data = await res.json().catch(() => ({})); toast.error(data.error || "Error al asignar") }
+            if (res.ok) { toast.success(`Certificado asignado a ${assignForm.identification}`, { style: { background: '#F0FDF4', color: '#166534', border: '1px solid #4ADE80' }, iconTheme: { primary: '#22C55E', secondary: '#F0FDF4' } }); setShowAssignModal(false); fetchEvents() }
+            else { const data = await res.json().catch(() => ({})); toast.error(data.error || "Error al asignar", { style: { background: '#FEF2F2', color: '#991B1B', border: '1px solid #F87171' } }) }
         } else if (assignMode === 'bulk' && bulkFile) {
             setBulkLoading(true)
             try {
@@ -263,19 +293,23 @@ export default function EventosPage() {
     })
     const toggleAssignmentSelection = (id: number) => setSelectedAssignments(prev => prev.includes(id) ? prev.filter(aId => aId !== id) : [...prev, id])
     const toggleAllAssignments = () => selectedAssignments.length === filteredViewerAssignments.length ? setSelectedAssignments([]) : setSelectedAssignments(filteredViewerAssignments.map(a => a.id))
-    const deleteSelectedAssignments = async () => {
-        if (selectedAssignments.length === 0 || !confirm(`¿Eliminar ${selectedAssignments.length} asignación(es)?`)) return;
+    const deleteSelectedAssignments = () => {
+        if (selectedAssignments.length === 0) return;
+        setConfirmAction({ type: "viewer-delete" })
+    }
+    const executeViewerDelete = async () => {
         setDeletingAssignments(true)
         try {
             const res = await fetch('/api/asignaciones/bulk-delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ assignmentIds: selectedAssignments }) })
             if (res.ok) {
-                toast.success(`Se eliminaron ${selectedAssignments.length}`); setViewerAssignments(prev => prev.filter(a => !selectedAssignments.includes(a.id))); setSelectedAssignments([]); fetchEvents()
+                toast.success(`Se eliminaron ${selectedAssignments.length} asignaciones`, { style: { background: '#FEF2F2', color: '#991B1B', border: '1px solid #F87171' }, iconTheme: { primary: '#DC2626', secondary: '#FEF2F2' } }); setViewerAssignments(prev => prev.filter(a => !selectedAssignments.includes(a.id))); setSelectedAssignments([]); fetchEvents()
             } else {
                 const errData = await res.json().catch(() => ({}));
                 toast.error(errData.error || "Error al eliminar")
             }
         } catch { toast.error("Error de conexión al eliminar") }
         setDeletingAssignments(false)
+        setConfirmAction(null)
     }
     const viewAssignmentCert = (a: ViewerAssignment, eventName: string) => {
         setPreviewFromViewer(true)
@@ -415,8 +449,8 @@ export default function EventosPage() {
                                     <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${tb[ev.eventType] || "bg-gray-100 text-gray-600"}`}>{ev.eventType}</span>
                                 </div>
                                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button onClick={() => openEdit(ev)} className="p-1.5 text-gray-400 hover:text-brand-500 rounded-lg transition-colors">✏️</button>
-                                    <button onClick={() => askDelete(ev)} className="p-1.5 text-gray-400 hover:text-error-500 rounded-lg transition-colors">🗑️</button>
+                                    <button onClick={() => openEdit(ev)} className="p-1.5 text-gray-400 hover:text-brand-600 hover:bg-gray-100 rounded-lg transition-colors"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg></button>
+                                    <button onClick={() => askDelete(ev)} className="p-1.5 text-gray-400 hover:text-error-600 hover:bg-gray-100 rounded-lg transition-colors"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
                                 </div>
                             </div>
                             <h3 className="text-base font-semibold text-gray-800 mb-1.5">{ev.name}</h3>
@@ -446,10 +480,10 @@ export default function EventosPage() {
                                                     </div>
                                                 </div>
                                                 <div className="flex gap-1 opacity-0 group-hover/cert:opacity-100 transition-opacity ml-2">
-                                                    <button onClick={() => openCertPreview(cert, ev)} title="Vista previa" className="p-1 rounded text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors"><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg></button>
-                                                    <button onClick={() => openEditCert(cert)} title="Editar" className="p-1 rounded text-gray-400 hover:bg-gray-100 hover:text-brand-600 transition-colors"><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg></button>
-                                                    <button onClick={() => openAssignModal(cert)} title="Asignar" className="p-1 rounded text-gray-400 hover:bg-gray-100 hover:text-success-600 transition-colors"><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg></button>
-                                                    <button onClick={() => askCertDelete(cert)} title="Eliminar" className="p-1 rounded text-gray-400 hover:bg-gray-100 hover:text-error-600 transition-colors"><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+                                                    <button onClick={() => openCertPreview(cert, ev)} title="Vista previa" className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg></button>
+                                                    <button onClick={() => openEditCert(cert)} title="Editar" className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-brand-600 transition-colors"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg></button>
+                                                    <button onClick={() => openAssignModal(cert)} title="Asignar" className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-success-600 transition-colors"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg></button>
+                                                    <button onClick={() => askCertDelete(cert)} title="Eliminar" className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-error-600 transition-colors"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
                                                 </div>
                                             </div>
                                         ))}
@@ -580,10 +614,10 @@ export default function EventosPage() {
             )}
             <ConfirmModal
                 open={!!confirmAction}
-                title={confirmAction?.type === "delete" ? "Eliminar evento" : confirmAction?.type === "cert-delete" ? "Eliminar certificado" : "Cambiar estado"}
-                message={confirmAction?.type === "delete" ? `¿Estás seguro de eliminar "${confirmAction?.event?.name}"? Esta acción no se puede deshacer.` : confirmAction?.type === "cert-delete" ? `¿Estás seguro de eliminar este certificado de tipo "${confirmAction?.cert?.participationType}"?` : `¿Cambiar el estado de "${confirmAction?.event?.name}" a ${(confirmAction?.event?.status || "Realizado") === "Realizado" ? "Pendiente" : "Realizado"}?`}
-                confirmText={confirmAction?.type === "status" ? "Cambiar estado" : "Eliminar"}
-                variant={confirmAction?.type === "delete" || confirmAction?.type === "cert-delete" ? "danger" : "warning"}
+                title={confirmAction?.type === "delete" ? "Eliminar evento" : confirmAction?.type === "cert-delete" ? "Eliminar certificado" : confirmAction?.type === "viewer-delete" ? "Eliminar asignaciones" : confirmAction?.type === "send-emails" ? "Enviar correos masivos" : "Cambiar estado"}
+                message={confirmAction?.type === "delete" ? `¿Estás seguro de eliminar "${confirmAction?.event?.name}"? Esta acción no se puede deshacer.` : confirmAction?.type === "cert-delete" ? `¿Estás seguro de eliminar este certificado de tipo "${confirmAction?.cert?.participationType}"?` : confirmAction?.type === "viewer-delete" ? `¿Estás seguro de que deseas eliminar las ${selectedAssignments.length} asignaciones seleccionadas?` : confirmAction?.type === "send-emails" ? `¿Estás seguro de que deseas enviar el correo de notificación a las ${selectedAssignments.length > 0 ? selectedAssignments.length : viewerAssignments.length} personas ${selectedAssignments.length > 0 ? "seleccionadas" : "del certificado"}?` : `¿Cambiar el estado de "${confirmAction?.event?.name}" a ${(confirmAction?.event?.status || "Realizado") === "Realizado" ? "Pendiente" : "Realizado"}?`}
+                confirmText={confirmAction?.type === "status" ? "Cambiar estado" : confirmAction?.type === "send-emails" ? "Enviar correos" : "Eliminar"}
+                variant={confirmAction?.type === "delete" || confirmAction?.type === "cert-delete" || confirmAction?.type === "viewer-delete" ? "danger" : confirmAction?.type === "send-emails" ? "info" : "warning"}
                 onConfirm={handleConfirm}
                 onCancel={() => setConfirmAction(null)}
             />
@@ -649,7 +683,7 @@ export default function EventosPage() {
                             {assignMode === 'individual' ? (
                                 <>
                                     <div><label className="block text-sm font-medium text-gray-700 mb-1">Identificación de la Persona *</label><input type="text" value={assignForm.identification} onChange={e => setAssignForm({ ...assignForm, identification: e.target.value })} required className={ic} placeholder="Ej: 123456789" /></div>
-                                    {["Ponente", "Conferencista", "Evaluador"].includes(assignCert.participationType) && (
+                                    {["Ponente", "Conferencista", "Docente", "Evaluador"].includes(assignCert.participationType) && (
                                         <div><label className="block text-sm font-medium text-gray-700 mb-1">Detalles de Participación *</label><input type="text" value={assignForm.details} onChange={e => setAssignForm({ ...assignForm, details: e.target.value })} required className={ic} placeholder="Ej: Título de la conferencia..." /></div>
                                     )}
                                 </>
@@ -661,7 +695,7 @@ export default function EventosPage() {
                                             <div>
                                                 <h4 className="text-sm font-semibold text-blue-800 mb-1">Instrucciones de carga masiva</h4>
                                                 <p className="text-xs text-blue-600 leading-relaxed">Debe ser un archivo Excel (.xlsx, .xls) con las siguientes columnas exactas: <strong className="font-semibold">Identificacion, Nombre_Completo, Correo</strong>. <br /> Si el usuario no existe en la base de datos se creará automáticamente.</p>
-                                                {assignCert && ["Ponente", "Conferencista", "Evaluador"].includes(assignCert.participationType) && <p className="text-xs text-blue-700 leading-relaxed font-medium mt-1 mt-1">⚠️ Requiere columna adicional: <strong className="font-semibold">Detalles</strong>.</p>}
+                                                {assignCert && ["Ponente", "Conferencista", "Docente", "Evaluador"].includes(assignCert.participationType) && <p className="text-xs text-blue-700 leading-relaxed font-medium mt-1 mt-1">⚠️ Requiere columna adicional: <strong className="font-semibold">Detalles</strong>.</p>}
                                                 <button type="button" onClick={downloadExampleXLSX} className="mt-3 text-xs font-semibold text-blue-700 bg-white/60 hover:bg-white px-3 py-1.5 rounded-md border border-blue-200 transition-colors inline-flex items-center gap-1.5"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg> Descargar Plantilla</button>
                                             </div>
                                         </div>
@@ -714,10 +748,25 @@ export default function EventosPage() {
                                 </table>
                             )}
                         </div>
-                        <div className="px-6 py-4 border-t border-gray-100 flex justify-between">
-                            {selectedAssignments.length > 0 && <button onClick={deleteSelectedAssignments} disabled={deletingAssignments} className="text-error-600 text-sm font-medium disabled:opacity-50">Eliminar Seleccionadas</button>}
-                            <div className="flex-1"></div>
-                            <button onClick={() => setShowViewerModal(false)} className="text-sm font-medium text-gray-700">Cerrar</button>
+                        <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2">
+                                {selectedAssignments.length > 0 && (
+                                    <button onClick={deleteSelectedAssignments} disabled={deletingAssignments || sendingEmails} className="inline-flex items-center gap-1.5 rounded-lg border border-error-100 bg-error-50 px-3 py-2 text-sm font-medium text-error-600 hover:bg-error-100 transition-colors disabled:opacity-50">
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                        Eliminar
+                                    </button>
+                                )}
+                                <button
+                                    onClick={askSendEmails}
+                                    disabled={sendingEmails || viewerAssignments.length === 0}
+                                    className="inline-flex items-center gap-1.5 rounded-lg border border-brand-100 bg-brand-50 px-3 py-2 text-sm font-medium text-brand-600 hover:bg-brand-100 transition-colors disabled:opacity-50"
+                                    title={selectedAssignments.length > 0 ? "Enviar a seleccionados" : "Enviar a todos"}
+                                >
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                                    {selectedAssignments.length > 0 ? `Notificar (${selectedAssignments.length})` : "Notificar a todos"}
+                                </button>
+                            </div>
+                            <button onClick={() => setShowViewerModal(false)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">Cerrar</button>
                         </div>
                     </div>
                 </div>

@@ -45,20 +45,20 @@ export default function PersonasPage() {
         const url = editingPerson ? `/api/personas/${editingPerson.id}` : "/api/personas"
         const res = await fetch(url, { method: editingPerson ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, phone: form.phone || null }) })
         if (res.ok) {
-            toast.success(editingPerson ? "Persona actualizada" : "Persona creada")
+            toast.success(editingPerson ? "Persona actualizada" : "Persona creada", { style: { background: '#F0FDF4', color: '#166534', border: '1px solid #4ADE80' }, iconTheme: { primary: '#22C55E', secondary: '#F0FDF4' } })
             setShowModal(false); setEditingPerson(null); setForm({ fullName: "", idType: "CC", identification: "", phone: "", email: "", programId: "" }); fetchData()
         } else {
             const data = await res.json().catch(() => ({}))
             const err = data.error || "Error al guardar"
             setError(err)
-            toast.error(err)
+            toast.error(err, { style: { background: '#FEF2F2', color: '#991B1B', border: '1px solid #F87171' } })
         }
     }
 
     const handleDelete = async (id: number) => {
         const res = await fetch(`/api/personas/${id}`, { method: "DELETE" })
         if (res.ok) {
-            toast.success("Persona eliminada")
+            toast.success("Persona eliminada", { style: { background: '#FEF2F2', color: '#991B1B', border: '1px solid #F87171' }, iconTheme: { primary: '#DC2626', secondary: '#FEF2F2' } })
             fetchData(); setConfirmAction(null)
         } else {
             const errData = await res.json().catch(() => ({}))
@@ -75,7 +75,7 @@ export default function PersonasPage() {
                 body: JSON.stringify({ ids: selectedIds })
             })
             if (res.ok) {
-                toast.success(`Se eliminaron ${selectedIds.length} personas`)
+                toast.success(`Se eliminaron ${selectedIds.length} personas`, { style: { background: '#FEF2F2', color: '#991B1B', border: '1px solid #F87171' }, iconTheme: { primary: '#DC2626', secondary: '#FEF2F2' } })
                 setSelectedIds([])
                 fetchData()
             } else {
@@ -173,8 +173,8 @@ export default function PersonasPage() {
                 <div className="flex items-center gap-3">
                     {selectedIds.length > 0 && (
                         <button onClick={() => setShowBatchDeleteModal(true)} className="inline-flex items-center gap-2 rounded-lg border border-error-200 bg-error-50 px-4 py-2.5 text-sm font-medium text-error-600 hover:bg-error-100 shadow-theme-xs transition-colors">
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                            Borrar Selección ({selectedIds.length})
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            Eliminar ({selectedIds.length})
                         </button>
                     )}
                     <button onClick={() => { setShowImportModal(true); setImportData([]) }} className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 shadow-theme-xs transition-colors">
@@ -260,9 +260,11 @@ export default function PersonasPage() {
                                     <td className="px-6 py-4 text-sm text-gray-500"><span className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded mr-1.5 font-medium">{p.idType}</span>{p.identification}</td>
                                     <td className="px-6 py-4 text-sm text-gray-500">{p.email}</td>
                                     <td className="px-6 py-4"><span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${p.program ? "bg-brand-50 text-brand-600" : "bg-gray-100 text-gray-600"}`}>{p.program?.name || "Sin programa"}</span></td>
-                                    <td className="px-6 py-4 text-right space-x-2">
-                                        <button onClick={() => openEdit(p)} className="inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 shadow-theme-xs transition-colors">Editar</button>
-                                        <button onClick={() => setConfirmAction(p)} className="inline-flex items-center rounded-lg border border-error-100 bg-error-50 px-3 py-1.5 text-xs font-medium text-error-600 hover:bg-error-100 transition-colors">Eliminar</button>
+                                    <td className="px-6 py-4 text-right">
+                                        <div className="inline-flex items-center gap-1">
+                                            <button onClick={() => openEdit(p)} title="Editar" className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-brand-600 transition-colors"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg></button>
+                                            <button onClick={() => setConfirmAction(p)} title="Eliminar" className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-error-600 transition-colors"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+                                        </div>
                                     </td>
                                 </tr>
                             ))}

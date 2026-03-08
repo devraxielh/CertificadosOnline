@@ -54,7 +54,7 @@ export default function ConfirmModal({ open, title, message, confirmText = "Conf
     const v = variants[variant]
 
     return (
-        <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-gray-900/50 p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[9999999] flex items-center justify-center bg-gray-900/50 p-4 animate-in fade-in duration-200">
             <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-6 shadow-theme-lg animate-in zoom-in-95 duration-200">
                 <div className="flex items-start gap-4">
                     <div className={`flex-shrink-0 w-11 h-11 rounded-xl ${v.bg} flex items-center justify-center`}>
